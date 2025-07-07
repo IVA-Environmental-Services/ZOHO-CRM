@@ -1,0 +1,106 @@
+/**
+ * Function: Service_Request_Update_Stage_Field
+ * ---------------------------------------------------------------------
+ * Purpose:
+ * - Updates the "Stage" field in a Service Request record based on its Category.
+ * - Dynamically constructs and updates the Service_Request_Number field using
+ *   data from linked Deal and Account records.
+ *
+ * Modules Involved:
+ * - CRM: Service_Request, Deals (Project), Accounts
+ *
+ * @param service_request_id (Int): The ID of the Service Request to update.
+ */
+
+void automation.Service_Request_Update_Stage_Field(Int service_request_id)
+{
+	// -------------------------------------------------
+	// Step 1: Fetch the Service Request Record from CRM
+	// -------------------------------------------------
+	service_request_details = zoho.crm.getRecordById("Service_Request", service_request_id);
+	category = service_request_details.get("Category");
+
+	// -------------------------------------------------
+	// Step 2: Update Stage based on the Category value
+	// -------------------------------------------------
+	service_request = Map();
+
+	if(category == "Service Charge")
+	{
+		service_request.put("Stage", "Generate Invoice");
+		info service_request;
+		update_service = zoho.crm.updateRecord("Service_Request", service_request_id, service_request, {"trigger": {"workflow", "blueprint", "approval"}});
+		info update_service;
+	}
+
+	if(category == "Gopher Tortoise Relocation" || category == "Burrowing Owl Excavation")
+	{
+		service_request.put("Stage", "Upload Issued Permit");
+		info service_request;
+		update_service = zoho.crm.updateRecord("Service_Request", service_request_id, service_request, {"trigger": {"workflow", "blueprint", "approval"}});
+		info update_service;
+	}
+
+	// ----------------------------------------------------------------------
+	// Step 3: Build and Update Service_Request_Number & Project_Number fields
+	// ----------------------------------------------------------------------
+
+	// Get related Deal (Project)
+	project_name = service_request_details.get("Project_Name");
+	project_id = ifnull(project_name.get("id"), null);
+	service_request_number = ifnull(service_request_details.get("Client_Service_ID"), "");
+	project_number = "";
+	deal_auto_number = "";
+
+	if(project_id != null)
+	{
+		project_details = zoho.crm.getRecordById("Deals", project_id);
+		deal_auto_number = ifnull(project_details.get("Auto_Number"), "");
+		project_number = ifnull(project_details.get("Project_Number"), "");
+	}
+
+	// Get related Account
+	account_id = service_request_details.getJSON("Account_Id");
+	account_number = "";
+
+	if(account_id != null)
+	{
+		account_details = zoho.crm.getRecordById("Accounts", account_id);
+		account_number = ifnull(account_details.get("Client_Account_ID"), "");
+	}
+
+	info account_number;
+
+	// ----------------------------------------------------------
+	// Step 4: Dynamically Construct Service_Request_Number Format
+	// ----------------------------------------------------------
+	sr_number = "";
+
+	if(account_number != "" && deal_auto_number != "")
+	{
+		sr_number = account_number + "-" + deal_auto_number + "-" + service_request_number;
+	}
+	else if(account_number == "")
+	{
+		sr_number = deal_auto_number + "-" + service_request_number;
+	}
+	else if(deal_auto_number == "")
+	{
+		sr_number = account_number + "-" + service_request_number;
+	}
+	else
+	{
+		sr_number = service_request_number;
+	}
+
+	// --------------------------------------------------
+	// Step 5: Update the Service Request Record in CRM
+	// --------------------------------------------------
+	service_request_map = Map();
+	service_request_map.put("Service_Request_Number", sr_number);
+	service_request_map.put("Project_Number", project_number);
+	info service_request_map;
+
+	update_service_request = zoho.crm.updateRecord("Service_Request", service_request_id, service_request_map, {"trigger": {"workflow"}});
+	info update_service_request;
+}
