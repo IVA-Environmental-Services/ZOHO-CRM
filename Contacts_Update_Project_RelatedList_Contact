@@ -1,0 +1,60 @@
+/**
+ * Function: Contacts_Update_Project_RelatedList_Contact
+ * ---------------------------------------------------------
+ * This function automates the update of the "Project_Name" field in a Contact record
+ * by tracing it through the associated Service Request.
+ *
+ * Use Case:
+ * - When a Contact is linked to a Service Request that contains a Project,
+ *   this function ensures that the Contact record is updated with that Project information.
+ *
+ * @param contact_id (Int) - The ID of the Contact in CRM.
+ * @return void
+ */
+void automation.Contacts_Update_Project_RelatedList_Contact(Int contact_id)
+{
+    // ----------------------------
+    // 1. Get Contact Record
+    // ----------------------------
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+
+    // Get the related Service_Request lookup field from the Contact
+    service_request = contact_details.getJSON("Service_Request");
+
+    // Proceed only if Service_Request is linked
+    if(service_request != null)
+    {
+        // ----------------------------
+        // 2. Get Service Request Details
+        // ----------------------------
+        service_request_id = service_request.getJSON("id");
+        service_request_details = zoho.crm.getRecordById("Service_Request", service_request_id);
+
+        // Fetch the associated Project ID from the Service Request
+        project_id = service_request_details.getJSON("Project_Name").getJSON("id");
+
+        // ----------------------------
+        // 3. Fetch Related Contacts from Service Request (Related List)
+        // ----------------------------
+        related_record_contact = zoho.crm.getRelatedRecords("Contacts", "Service_Request", service_request_id);
+
+        // ----------------------------
+        // 4. Update Each Related Contact with Project ID
+        // ----------------------------
+        if(related_record_contact.size() > 0)
+        {
+            for each related_record in related_record_contact
+            {
+                related_contact_id = related_record.get("id");
+
+                // Prepare update map for Contact
+                project_map = Map();
+                project_map.put("Project_Name", project_id);
+
+                // Update Contact record with Project Name
+                update_contact = zoho.crm.updateRecord("Contacts", related_contact_id, project_map, {"trigger":{"workflow"}});
+                info update_contact;
+            }
+        }
+    }
+}
