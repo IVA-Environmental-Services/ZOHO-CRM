@@ -1,0 +1,196 @@
+/**
+ * Function: Contacts_Create_Contact_In_Zoho_Creator
+ * -----------------------------------------------------------------------
+ * Creates a Contact record in Zoho Creator (app: ivaenvironmentalservices)
+ * by collecting data from:
+ *  - CRM Contacts
+ *  - Related Deals (Projects)
+ *  - Related Service Requests
+ *  - Linked Accounts and Contact references
+ *
+ * The script performs:
+ *  1. Fetching CRM Contact and related records
+ *  2. Searching/updating/creating Project records in Creator
+ *  3. Bundling all data into "Projects_Data"
+ *  4. Creating the Contact in Creator linked to that data
+ *
+ * @param contact_id (Int) - The ID of the Contact from Zoho CRM
+ * @return void
+ */
+void automation.Contacts_Create_Contact_In_Zoho_Creator(Int contact_id)
+{
+    // -------------------------------
+    // 1. Fetch CRM Contact and Deals
+    // -------------------------------
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+    related = zoho.crm.getRelatedRecords("Deals", "Contacts", contact_id);
+
+    creator_list = list();
+    Project_Name = contact_details.getJSON("Project_Name");
+    if(Project_Name != null)
+    {
+        creator_list.add(Project_Name.getJSON("id"));
+    }
+
+    // Add all related Deal IDs to the list
+    if(related.size() > 0)
+    {
+        for each product in related
+        {
+            creator_list.add(product.getJSON("id"));
+        }
+        creator_list = creator_list.distinct();
+    }
+
+    // -------------------------------
+    // 2. Loop Over Projects (Deals)
+    // -------------------------------
+    coll = Collection();
+    if(creator_list.size() > 0)
+    {
+        for each Id in creator_list
+        {
+            product_map = Map();
+
+            // Check if Project exists in Creator
+            proCreator = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", "ZCRM_ID==\"" + Id + "\"", 1, 1, "zoho_creator");
+            if(!proCreator.contains("{\"code\":3100,\"message\":\"No records found for the given criteria.\"}"))
+            {
+                // Link existing Project
+                product_map.put("Projects", proCreator.getJSON("data").getJSON("ID"));
+            }
+            else
+            {
+                // -------------------------------
+                // 3. Fetch Related Service Requests
+                // -------------------------------
+                related_records = zoho.crm.getRelatedRecords("Service_Requested", "Deals", Id);
+                service_request_list = List();
+                if(related_records.size() > 0)
+                {
+                    for each related_service in related_records
+                    {
+                        service_request_map = Map();
+                        service_request_map.put("Service_Request_Name", related_service.get("Name"));
+                        service_request_map.put("Customer_Service_Request_ID", ifnull(related_service.get("Service_Request_Number"), ""));
+                        service_request_map.put("Project_Number", ifnull(related_service.get("Project_Number"), ""));
+                        service_request_map.put("City", ifnull(related_service.get("City"), ""));
+                        service_request_map.put("Parcel_ID", ifnull(related_service.get("Parcel_ID"), ""));
+                        service_request_map.put("County", ifnull(related_service.get("County1"), ""));
+                        service_request_map.put("Zone", ifnull(related_service.get("Zone"), ""));
+                        service_request_map.put("Relocation_Type", ifnull(related_service.get("On_Site1"), ""));
+                        service_request_map.put("Permit_Number", ifnull(related_service.get("Permit_Number"), ""));
+                        service_request_map.put("Recommended_Recipient_Site", ifnull(related_service.get("Recommended_Recipient_Site"), ""));
+                        service_request_map.put("Permit_Issue_Date", related_service.get("Permit_Issue_Date") != null ? related_service.get("Permit_Issue_Date").toDate() : "");
+                        service_request_map.put("Checklist_Type", ifnull(related_service.get("Checklist_Type"), ""));
+                        service_request_map.put("Permit_expiry_date", related_service.get("Permit_expiry_date") != null ? related_service.get("Permit_expiry_date").toDate() : "");
+                        service_request_map.put("Permit_Application_Number", ifnull(related_service.get("Permit_Application_Number1"), ""));
+                        service_request_map.put("Number_of_Reservation", ifnull(related_service.get("Number_of_Reservation"), ""));
+                        service_request_map.put("Email", ifnull(related_service.get("Contact_Email"), ""));
+                        service_request_map.put("ZCRM_ID", related_service.get("id").toString());
+                        service_request_list.add(service_request_map);
+                    }
+                }
+
+                // -------------------------------
+                // 4. Prepare Project Details
+                // -------------------------------
+                project_data = zoho.crm.getRecordById("Deals", Id);
+                dataMap = Map();
+                dataMap.put("Project_Name", project_data.get("Deal_Name"));
+                dataMap.put("Email_address", project_data.get("Email_address"));
+                dataMap.put("Pipeline", project_data.get("Pipeline"));
+                dataMap.put("Stage", project_data.get("Stage"));
+                dataMap.put("Project_Owner", project_data.get("Owner").get("name"));
+                dataMap.put("ZCRM_ID", Id.toString());
+                dataMap.put("Related_Service_Requests", service_request_list);
+
+                // -------------------------------
+                // 5. Fetch Linked Account from CRM
+                // -------------------------------
+                account_id3 = "";
+                if(project_data.get("Account_Name") != null)
+                {
+                    account_id = project_data.get("Account_Name").get("id").tostring();
+                    search_accounts = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Accounts", "ZCRM_ID==\"" + account_id + "\"", 1, 1, "zoho_creator");
+                    if(search_accounts.get("code") == "3000")
+                    {
+                        account_id3 = search_accounts.get("data").get(0).get("ID").toLong();
+                    }
+                    dataMap.put("Account_Name", account_id3);
+                }
+
+                // -------------------------------
+                // 6. Fetch Linked Contact from CRM
+                // -------------------------------
+                contact_id3 = "";
+                if(project_data.get("Contact_Name") != null)
+                {
+                    contact_id_ref = project_data.get("Contact_Name").get("id").tostring();
+                    search_contact = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Contacts", "ZCRM_ID==\"" + contact_id_ref + "\"", 1, 1, "zoho_creator");
+                    if(search_contact.get("code") == "3000")
+                    {
+                        contact_id3 = search_contact.get("data").get(0).get("ID").toLong();
+                    }
+                    dataMap.put("Contact_Name", contact_id3);
+                }
+
+                // -------------------------------
+                // 7. Create or Update Project in Creator
+                // -------------------------------
+                project_id = Id.toString();
+                search_project = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", "ZCRM_ID==\"" + project_id + "\"", 1, 1, "zoho_creator");
+
+                otherParams = Map();
+                if(search_project.get("code") == "3000")
+                {
+                    project_id3 = search_project.get("data").get(0).get("ID").toLong();
+                    update_project = zoho.creator.updateRecord("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", project_id3, dataMap, otherParams, "zoho_creator");
+                    info "update_project => " + update_project;
+                }
+                else
+                {
+                    create_project = zoho.creator.createRecord("ivaenvironmentalservices", "iva-environmental-services", "Projects", dataMap, otherParams, "zoho_creator");
+                    info "create_project => " + create_project;
+                    product_map.put("Projects", create_project.getJSON("data").get("ID"));
+                }
+            }
+
+            // Add each project map to collection
+            coll.insert(product_map);
+        }
+    }
+
+    // -------------------------------
+    // 8. Prepare Creator Contact Record
+    // -------------------------------
+    first_name = ifnull(contact_details.getJSON("First_Name"), "");
+    last_name = ifnull(contact_details.getJSON("Last_Name"), "");
+    contact_name = first_name + " " + last_name;
+    email = ifnull(contact_details.getJSON("Email"), "");
+    phone = ifnull(contact_details.getJSON("Phone"), "");
+    title = ifnull(contact_details.getJSON("Title"), "");
+    account_name = "";
+    if(contact_details.getJSON("Account_Name") != null)
+    {
+        account_name = ifnull(contact_details.getJSON("Account_Name").getJSON("name"), "");
+    }
+
+    creator_contact_map = Map();
+    creator_contact_map.put("Job_Title", title);
+    creator_contact_map.put("First_Name", first_name);
+    creator_contact_map.put("Last_Name", last_name);
+    creator_contact_map.put("Email", email);
+    creator_contact_map.put("Phone_Number", phone);
+    creator_contact_map.put("Account_Name", account_name);
+    creator_contact_map.put("Customer_ID", contact_id);
+    creator_contact_map.put("Projects_Data", coll);
+    info coll;
+
+    // -------------------------------
+    // 9. Create Contact in Creator
+    // -------------------------------
+    blank_map = Map(); // For headers or config
+    create_contact_creator = zoho.creator.createRecord("ivaenvironmentalservices", "iva-environmental-services", "Contacts", creator_contact_map, blank_map, "zoho_creator");
+    info "create_contact_creator => " + create_contact_creator;
+}
