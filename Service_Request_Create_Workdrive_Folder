@@ -1,0 +1,282 @@
+/**
+ * Function: Service_Request_Create_Workdrive_Folder
+ * ------------------------------------------------------------------
+ * Description:
+ * This function automates the following:
+ * - Retrieves a Service Request record from Zoho CRM.
+ * - Creates a corresponding folder in Zoho WorkDrive.
+ * - Sets permissions and generates the WorkDrive folder URL.
+ * - Updates CRM fields including stage and category.
+ * - Constructs and updates a dynamic Service Request Number.
+ * - Creates a corresponding record in Zoho Creator under "Service_Requests".
+ * 
+ * Modules involved:
+ * - CRM: Service_Request, Products, Deals, Accounts
+ * - WorkDrive
+ * - Creator: iva-environmental-services -> Service_Requests
+ */
+
+void automation.Service_Request_Create_Workdrive_Folder(Int service_request_id)
+{
+    // Fetch Service Request details from CRM
+    serviceDetails = zoho.crm.getRecordById("Service_Request", service_request_id);
+    info service_request_id;
+
+    // Extract core fields
+    serviceName = serviceDetails.get("Name");
+    serviceEmail = serviceDetails.get("Contact_Email");
+    info serviceEmail;
+
+    // Get contact ID from lookup
+    contactId = serviceDetails.get("Contact_Name").getJSON("id");
+
+    // Get Service Type (lookup of Products module)
+    serviceType = serviceDetails.get("Service_Type");
+    serviceTypeId = serviceType.getJSON("id");
+
+    // Fetch Product record for Category info
+    serviceTypeRecord = zoho.crm.getRecordById("Products", serviceTypeId);
+    productCategory = serviceTypeRecord.get("Product_Category");
+
+    // -----------------------------------------------
+    // Create Folder in Zoho WorkDrive for the Service
+    // -----------------------------------------------
+    createSubFolder = zoho.workdrive.createFolder(serviceName, "3viiy14d08ad3afe346e5a4861ac4125a471c", "zohoworkdrive");
+    subfolder_id = createSubFolder.get("data").getJSON("id");
+    subfolder_url = "https://workdrive.zoho.com/home/tpllp93ab1b34b25748dab7c34ad43a4f4526/privatespace/folders/" + subfolder_id;
+
+    // --------------------------------------------------------
+    // Set folder permissions (Share with everyone - read only)
+    // --------------------------------------------------------
+    header = Map();
+    header.put("Accept", "application/vnd.api+json");
+
+    data_map = Map();
+    data_param1 = Map();
+    att_param1 = Map();
+
+    att_param1.put("resource_id", subfolder_id);
+    att_param1.put("shared_type", "everyone");
+    att_param1.put("role_id", "1"); // 1 = Viewer
+
+    data_param1.put("attributes", att_param1);
+    data_param1.put("type", "permissions");
+    data_map.put("data", data_param1);
+
+    response = invokeurl
+    [
+        url: "https://www.zohoapis.com/workdrive/api/v1/permissions"
+        type: POST
+        parameters: data_map.toString()
+        headers: header
+        connection: "zohoworkdrive"
+    ];
+
+    data = response.get("data").getJSON("attributes").getJSON("permalink");
+
+    // --------------------------------------------------
+    // Update Service Request record in CRM with:
+    // - WorkDrive URL
+    // - Product Category
+    // - Appropriate Stage
+    // --------------------------------------------------
+    service_Map = Map();
+    service_Map.put("Workdrive_folder_url", data);
+    service_Map.put("Category", productCategory);
+
+    // Update stage based on product category
+    if (productCategory == "Service Charge")
+    {
+        service_Map.put("Stage", "Generate Invoice");
+    }
+    if (productCategory != "Service Charge" || productCategory != "Consulting Services")
+    {
+        service_Map.put("Stage", "Project created");
+    }
+    if (productCategory == "Consulting Services")
+    {
+        service_Map.put("Stage", "Upload Application/Plan");
+        info service_Map;
+    }
+
+    // Add linked CRM values
+    service_Map.put("Service_Type_Id", serviceTypeId);
+    service_Map.put("Service_Request_Id", service_request_id.toString());
+    service_Map.put("Contact_Id", contactId);
+    info "service_Map" + service_Map;
+
+    update_service = zoho.crm.updateRecord("Service_Request", service_request_id, service_Map, {"trigger": {"workflow", "blueprint", "approval"}});
+    info update_service;
+
+    // --------------------------------------
+    // Recheck Category & Update Stage Again
+    // --------------------------------------
+    service_request_details = zoho.crm.getRecordById("Service_Request", service_request_id);
+    category = service_request_details.get("Category");
+
+    service_request = Map();
+    if (category == "Service Charge")
+    {
+        service_request.put("Stage", "Generate Invoice");
+        info service_request;
+        update_service = zoho.crm.updateRecord("Service_Request", service_request_id, service_request, {"trigger": {"workflow", "blueprint", "approval"}});
+        info update_service;
+    }
+
+    if (category == "Gopher Tortoise Relocation" || category == "Burrowing Owl Excavation")
+    {
+        service_request.put("Stage", "Upload Issued Permit");
+        info service_request;
+        update_service = zoho.crm.updateRecord("Service_Request", service_request_id, service_request, {"trigger": {"workflow", "blueprint", "approval"}});
+        info update_service;
+    }
+
+    // -----------------------------------------------------------------
+    // Generate Dynamic Service Request Number from Deal & Account Info
+    // -----------------------------------------------------------------
+    project_name = service_request_details.get("Project_Name");
+    project_id = ifnull(project_name.get("id"), null);
+    service_request_number = ifnull(service_request_details.get("Client_Service_ID"), "");
+    project_number = "";
+    deal_auto_number = "";
+
+    if (project_id != null)
+    {
+        project_details = zoho.crm.getRecordById("Deals", project_id);
+        deal_auto_number = ifnull(project_details.get("Auto_Number"), "");
+        project_number = ifnull(project_details.get("Project_Number"), "");
+    }
+
+    account_id = service_request_details.getJSON("Account_Id");
+    account_number = "";
+
+    if (account_id != null)
+    {
+        account_details = zoho.crm.getRecordById("Accounts", account_id);
+        account_number = ifnull(account_details.get("Client_Account_ID"), "");
+    }
+
+    service_request_map = Map();
+    info account_number;
+
+    // Format: ACCNUM-DEALNUM-SRNUM
+    sr_number = "";
+    if (account_number != "" && deal_auto_number != "")
+    {
+        sr_number = account_number + "-" + deal_auto_number + "-" + service_request_number;
+    }
+    else if (account_number == "")
+    {
+        sr_number = deal_auto_number + "-" + service_request_number;
+    }
+    else if (deal_auto_number == "")
+    {
+        sr_number = account_number + "-" + service_request_number;
+    }
+    else
+    {
+        sr_number = service_request_number;
+    }
+
+    service_request_map.put("Service_Request_Number", sr_number);
+    service_request_map.put("Project_Number", project_number);
+    info service_request_map;
+
+    update_service_request = zoho.crm.updateRecord("Service_Request", service_request_id, service_request_map, {"trigger": {"workflow"}});
+    info update_service_request;
+
+    // ------------------------------------------------------
+    // Sync the Service Request to Zoho Creator App Database
+    // ------------------------------------------------------
+    related_service = zoho.crm.getRecordById("Service_Request", service_request_id);
+    project_name = related_service.getJSON("Project_Name");
+
+    // Get Project ID in Creator
+    if (project_name != null)
+    {
+        project_id = project_name.get("id");
+        search_project = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", "ZCRM_ID==\"" + project_id + "\"", 1, 1, "zoho_creator");
+        if (search_project.get("code") == "3000")
+        {
+            project_id3 = search_project.get("data").get(0).get("ID").toLong();
+        }
+    }
+
+    // Extract related fields
+    service_request_name = related_service.get("Name");
+    customer_service_req_id = if(!isnull(related_service.get("Service_Request_Number")), related_service.get("Service_Request_Number"), "");
+    service_address = if(!isnull(related_service.get("Project_Name")), related_service.get("Project_Name").get("name"), "");
+    project_number = if(!isnull(related_service.get("Project_Number")), related_service.get("Project_Number"), "");
+    city = if(!isnull(related_service.get("City")), related_service.get("City"), "");
+    parcel_id = if(!isnull(related_service.get("Parcel_ID")), related_service.get("Parcel_ID"), "");
+    county = if(!isnull(related_service.get("County1")), related_service.get("County1"), "");
+    zone = if(!isnull(related_service.get("Zone")), related_service.get("Zone"), "");
+    relocation_type = if(!isnull(related_service.get("On_Site1")), related_service.get("On_Site1"), "");
+    permit_number = if(!isnull(related_service.get("Permit_Number")), related_service.get("Permit_Number"), "");
+    recommended_recipient_site = if(!isnull(related_service.get("Recommended_Recipient_Site")), related_service.get("Recommended_Recipient_Site"), "");
+
+    permit_issue_date1 = related_service.get("Permit_Issue_Date");
+    permit_issue_date = "";
+    if (permit_issue_date1 != null)
+    {
+        permit_issue_date = permit_issue_date1.toDate();
+    }
+
+    checklist_type = if(!isnull(related_service.get("Checklist_Type")), related_service.get("Checklist_Type"), "");
+
+    permit_expiry_date1 = related_service.get("Permit_expiry_date");
+    permit_expiry_date = "";
+    if (permit_expiry_date1 != null)
+    {
+        permit_expiry_date = permit_expiry_date1.toDate();
+    }
+
+    permit_application_number = if(!isnull(related_service.get("Permit_Application_Number1")), related_service.get("Permit_Application_Number1"), "");
+    number_of_reservation = if(!isnull(related_service.get("Number_of_Reservation")), related_service.get("Number_of_Reservation"), "");
+    contact_email = if(!isnull(related_service.get("Contact_Email")), related_service.get("Contact_Email"), "");
+    Integrated_Stages = related_service.get("Integrated_Stages");
+
+    // Prepare data map for Creator
+    service_request_map = Map();
+    service_request_map.put("Service_Request_Name", service_request_name);
+    service_request_map.put("Customer_Service_Request_ID", customer_service_req_id);
+    service_request_map.put("Project_Number", project_number);
+    service_request_map.put("City", city);
+    service_request_map.put("Parcel_ID", parcel_id);
+    service_request_map.put("County", county);
+    service_request_map.put("Zone", zone);
+    service_request_map.put("Relocation_Type", relocation_type);
+    service_request_map.put("Permit_Number", permit_number);
+    service_request_map.put("Recommended_Recipient_Site", recommended_recipient_site);
+    service_request_map.put("Permit_Issue_Date", permit_issue_date);
+    service_request_map.put("Checklist_Type", checklist_type);
+    service_request_map.put("Permit_expiry_date", permit_expiry_date);
+    service_request_map.put("Permit_Application_Number", permit_application_number);
+    service_request_map.put("Number_of_Reservation", number_of_reservation);
+    service_request_map.put("Email", contact_email);
+    service_request_map.put("ZCRM_ID", related_service.get("id").toString());
+    service_request_map.put("Projects", project_id3);
+    service_request_map.put("Service_Address", project_id3);
+    service_request_map.put("Stage1", Integrated_Stages);
+
+    // Timestamp for tracking
+    currentdate = zoho.currenttime.toString();
+    currentdate = currentdate.substring(11, 19);
+    currentdate = zoho.currentdate.toString("dd-MMM-yyyy") + " " + currentdate;
+    service_request_map.put("Last_Stage_Date", currentdate);
+
+    // Push to Creator
+    otherParams = Map();
+    creator = zoho.creator.createRecord("ivaenvironmentalservices", "iva-environmental-services", "Service_Requests", service_request_map, otherParams, "zoho_creator");
+
+    // If successfully created in Creator, update ZCreator_ID in CRM
+    if (creator.get("code") == "3000")
+    {
+        info creator;
+        creator = creator.get("data").get("ID");
+        servise = Map();
+        servise.put("ZCreator_ID", creator);
+        update_contact_record = zoho.crm.updateRecord("Service_Request", service_request_id, servise, {"trigger": {"workflow", "blueprint", "approval"}});
+        info update_contact_record;
+    }
+}
