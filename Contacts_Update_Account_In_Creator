@@ -1,0 +1,52 @@
+/**
+ * Function: Contacts_Update_Account_In_Creator
+ * ------------------------------------------------------------------
+ * Updates the Account details (ID & Name) in the Zoho Creator app
+ * for a specific Contact, based on its related CRM Account.
+ *
+ * Modules Involved:
+ * - Zoho CRM: Contacts & Account_Name
+ * - Zoho Creator App: "ivaenvironmentalservices"
+ *   - Form: "All_Projects"
+ *
+ * @param contact_id (Int) - Zoho CRM Contact ID
+ * @return void
+ */
+void automation.Contacts_Update_Account_In_Creator(Int contact_id)
+{
+    // ------------------------------
+    // 1. Fetch Contact Details from CRM
+    // ------------------------------
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+
+    // Get linked Account (Name + ID) and Creator record reference
+    account_name = contact_details.getJSON("Account_Name");
+    creator_contact_id = contact_details.getJSON("Creator_Contact_Id");
+
+    account_id = account_name.getJSON("id");
+    account_name = account_name.getJSON("name");
+
+    // ------------------------------
+    // 2. Prepare Data Map to Update Creator
+    // ------------------------------
+    creator_map = Map();
+    creator_map.put("Account_Id", account_id);           // ZCRM Account ID
+    creator_map.put("Account_Name", account_name);       // ZCRM Account Name
+
+    otherParams = Map();  // Placeholder for any headers/params
+
+    // ------------------------------
+    // 3. Update the Record in Creator's "All_Projects"
+    // ------------------------------
+    update_project = zoho.creator.updateRecord(
+        "ivaenvironmentalservices",               // Creator app link name
+        "iva-environmental-services",             // Creator app name
+        "All_Projects",                           // Form name in Creator
+        creator_contact_id,                       // Record ID to update (from CRM)
+        creator_map,                              // Data to update
+        otherParams,                              // Optional params
+        "zoho_creator"                            // Connection name
+    );
+
+    info "update_project => " + update_project;
+}
