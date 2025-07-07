@@ -1,0 +1,57 @@
+/**
+ * Function: Service_Request_Update_Close_Permit_Transition
+ * ------------------------------------------------------------------
+ * Purpose:
+ * - Advances the Service Request blueprint to the "Close Permit" stage
+ *   using a specific transition ID.
+ *
+ * Modules Involved:
+ * - CRM: Service_Request
+ * - Blueprint transition API (v2)
+ *
+ * @param service_request_id (Int): The ID of the Service Request record in CRM.
+ */
+
+void automation.Service_Request_Update_Close_Permit_Transition(Int service_request_id)
+{
+    // --------------------------------------------
+    // Step 1: Define the transition ID (hardcoded)
+    // This is the transition ID for the "Close Permit" stage
+    // Replace it if your blueprint process changes
+    // --------------------------------------------
+    transId = "6171737000009535330";
+
+    // --------------------------------------------
+    // Step 2: Build the JSON payload for the transition
+    // --------------------------------------------
+    notes = "Automatically transitioned via Deluge script";
+
+    blueprint_payload = Map();
+    blueprint_payload.put("transition_id", transId);
+
+    dataMap = Map();
+    dataMap.put("Notes", notes);  // Blueprint field: Notes
+    blueprint_payload.put("data", dataMap);
+
+    blueprint_list = List();
+    blueprint_list.add(blueprint_payload);
+
+    payload = Map();
+    payload.put("blueprint", blueprint_list);
+
+    // --------------------------------------------
+    // Step 3: Make PUT request to trigger blueprint transition
+    // --------------------------------------------
+    update_transition = invokeurl
+    [
+        url: "https://www.zohoapis.com/crm/v2/Service_Request/" + service_request_id + "/actions/blueprint"
+        type: PUT
+        parameters: payload.toString()
+        connection: "zworkdrive"  // Ensure this connection is valid and has CRM scope
+    ];
+
+    // --------------------------------------------
+    // Step 4: Log the response for debugging
+    // --------------------------------------------
+    info update_transition;
+}
