@@ -1,0 +1,32 @@
+/**
+ * Function: Service_Request_Update_Stage_Upload_Application_Plan
+ * -------------------------------------------------------------------------
+ * Purpose:
+ * - Updates the "Stage" and "Integrated_Stages" fields for a Service Request
+ *   to reflect that the Application/Plan upload is in progress.
+ *
+ * Modules Involved:
+ * - CRM: Service_Request
+ *
+ * @param service_request_id (Int): The CRM ID of the Service Request to update.
+ */
+
+void automation.Service_Request_Update_Stage_Upload_Application_Plan(Int service_request_id)
+{
+    // --------------------------------------------
+    // Step 1: Prepare update map for the fields
+    // --------------------------------------------
+    service_request = Map();
+    service_request.put("Stage", "Upload Application/Plan");
+    service_request.put("Integrated_Stages", "Report/Application In Progress");
+
+    info service_request;
+
+    // --------------------------------------------
+    // Step 2: Update the CRM record
+    // --------------------------------------------
+    update_service = zoho.crm.updateRecord("Service_Request", service_request_id, service_request);
+
+    // Log the response
+    info update_service;
+}
