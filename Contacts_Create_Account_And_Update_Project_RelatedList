@@ -1,0 +1,183 @@
+Condition 1 ://////////////// The contact record has been created, but the Account Name field is empty ////////////////////////
+/**
+ * Function: Contacts_Create_Account
+ * ---------------------------------------------------------
+ * This function performs the following:
+ * 1. Creates an Account in Zoho CRM using a Contact's details if no Account is linked.
+ * 2. Links the newly created Account back to the Contact.
+ * 3. Retrieves the Account's custom "Client_Account_ID" and appends it to the Contact's Auto Number
+ *    to generate a combined "Contact_Number" (format: Client_Account_ID-Auto_Number).
+ *
+ * @param contact_id (Int) - The ID of the Contact in Zoho CRM
+ * @return void
+ */
+void automation.Contacts_Create_Account(Int contact_id)
+{
+    // ----------------------------
+    // 1. Fetch Contact Details
+    // ----------------------------
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+
+    first_name = ifnull(contact_details.getJSON("First_Name"), "");
+    last_name = ifnull(contact_details.getJSON("Last_Name"), "");
+    contact_name = first_name + last_name;
+    info contact_name;
+
+    contact_auto_number = ifnull(contact_details.get("Auto_Number"), "");
+    account_name = contact_details.getJSON("Account_Name");
+    Phone = contact_details.get("Phone");
+
+    // ----------------------------
+    // 2. Create Account if Not Already Linked
+    // ----------------------------
+    account_map = Map();
+    if(account_name == null)
+    {
+        account_map.put("Account_Name", contact_name);
+        account_map.put("Phone", Phone);
+
+        // Create new Account
+        create_account = zoho.crm.createRecord("Accounts", account_map);
+        info create_account;
+
+        get_account_id = create_account.getJSON("id");
+
+        // Link the new Account back to the Contact
+        contact_map = Map();
+        contact_map.put("Account_Name", get_account_id);
+        update_contact = zoho.crm.updateRecord("Contacts", contact_id, contact_map, {"trigger":{"workflow"}});
+        info update_contact;
+    }
+
+    // --------------------------------------------------
+    // 3. Generate Custom Contact Number (ClientID-AutoNo)
+    // --------------------------------------------------
+    // (Run regardless of whether Account was just created or already existed)
+
+    // Re-fetch contact details to get updated Account info
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+    account_name = contact_details.getJSON("Account_Name");
+
+    // Get Account ID
+    account_id = account_name.getJSON("id");
+
+    // Fetch Account details to retrieve Client_Account_ID
+    account_details = zoho.crm.getRecordById("Accounts", account_id);
+    account_number = ifnull(account_details.get("Client_Account_ID"), "");
+
+    // Create final contact number in format: ClientID-AutoNumber
+    contact_map = Map();
+    contact_map.put("Contact_Number", account_number + "-" + contact_auto_number);
+    info contact_map;
+
+    // Update contact with the new Contact Number
+    update_contact = zoho.crm.updateRecord("Contacts", contact_id, contact_map, {"trigger":{"workflow"}});
+    info update_contact;
+}
+
+
+Condition 2 :////////////////// The contact record has been created, but the Account Name field is not empty ////////////////////////////////
+
+/**
+ * Function: Contacts_Update_Contact_Number
+ * ---------------------------------------------------------
+ * This function updates the "Contact_Number" field of a Contact record
+ * by combining the Account's "Client_Account_ID" and the Contact's "Auto_Number".
+ *
+ * Format: Client_Account_ID-Auto_Number
+ * Example: ACC1001-CN2025
+ *
+ * @param contact_id (Int) - The ID of the Contact in Zoho CRM
+ * @return void
+ */
+void automation.Contacts_Update_Contact_Number(Int contact_id)
+{
+    // ----------------------------------
+    // 1. Fetch Contact Details
+    // ----------------------------------
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+    contact_auto_number = ifnull(contact_details.get("Auto_Number"), "");
+
+    // ----------------------------------
+    // 2. Get Linked Account ID
+    // ----------------------------------
+    account_id = ifnull(contact_details.getJSON("Account_Name").getJSON("id"), "");
+
+    // ----------------------------------
+    // 3. Fetch Account Details
+    // ----------------------------------
+    account_details = zoho.crm.getRecordById("Accounts", account_id);
+    account_number = ifnull(account_details.get("Client_Account_ID"), "");
+
+    // ----------------------------------
+    // 4. Construct & Update Contact Number
+    // ----------------------------------
+    contact_map = Map();
+    contact_map.put("Contact_Number", account_number + "-" + contact_auto_number);
+    info contact_map;
+
+    // Update the Contact record with new Contact Number
+    update_contact = zoho.crm.updateRecord("Contacts", contact_id, contact_map, {"trigger":{"workflow"}});
+    info update_contact;
+}
+
+Condition 3 : ////////////////The contact record has been created, but the Service Request field is non empty /////////////////////////
+
+/**
+ * Function: Contacts_Update_Project_RelatedList_Contact
+ * ---------------------------------------------------------
+ * This function updates all Contact records related to a specific Service Request
+ * with the Project linked to that Service Request.
+ *
+ * Steps:
+ * 1. Get the Service Request linked to the Contact.
+ * 2. Get the Project from the Service Request.
+ * 3. Fetch all Contacts related to that Service Request.
+ * 4. Update each Contact with the Project ID.
+ *
+ * @param contact_id (Int) - ID of the Contact in Zoho CRM
+ * @return void
+ */
+void automation.Contacts_Update_Project_RelatedList_Contact(Int contact_id)
+{
+    // ----------------------------------------
+    // 1. Fetch Contact and Related Service Request
+    // ----------------------------------------
+    contact_details = zoho.crm.getRecordById("Contacts", contact_id);
+    service_request = contact_details.getJSON("Service_Request");
+
+    // Proceed only if Service Request is present
+    if(service_request != null)
+    {
+        service_request_id = service_request.getJSON("id");
+
+        // ----------------------------------------
+        // 2. Fetch Service Request Details and Project ID
+        // ----------------------------------------
+        service_request_details = zoho.crm.getRecordById("Service_Request", service_request_id);
+        project_id = service_request_details.getJSON("Project_Name").getJSON("id");
+
+        // ----------------------------------------
+        // 3. Fetch All Related Contacts to This Service Request
+        // ----------------------------------------
+        related_record_contact = zoho.crm.getRelatedRecords("Contacts", "Service_Request", service_request_id);
+
+        if(related_record_contact.size() > 0)
+        {
+            // ----------------------------------------
+            // 4. Update Each Related Contact with Project ID
+            // ----------------------------------------
+            for each related_record in related_record_contact
+            {
+                related_contact_id = related_record.get("id");
+
+                project_map = Map();
+                project_map.put("Project_Name", project_id);
+
+                // IMPORTANT: Update each related contact, not the original contact_id
+                update_contact = zoho.crm.updateRecord("Contacts", related_contact_id, project_map, {"trigger":{"workflow"}});
+                info update_contact;
+            }
+        }
+    }
+}
