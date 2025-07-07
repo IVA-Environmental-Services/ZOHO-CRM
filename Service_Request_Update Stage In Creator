@@ -1,0 +1,43 @@
+/**
+ * Function: Service_Request_Update_Service_Request_Stage_Creator
+ * ----------------------------------------------------------------------------
+ * Purpose:
+ * - Syncs the current "Integrated_Stages" and "Last_Stage_Date" from a Zoho CRM
+ *   Service Request to its corresponding record in Zoho Creator.
+ *
+ * Modules Involved:
+ * - Zoho CRM: Service_Request
+ * - Zoho Creator: All_Service_Requests (form)
+ *
+ * @param Id (Int): The ID of the Service Request record in Zoho CRM.
+ */
+
+void automation.Service_Request_Update_srevice_Request_Stage_creator(Int Id)
+{
+    // ---------------------------------------------------
+    // Step 1: Fetch related Service Request from CRM
+    // ---------------------------------------------------
+    related_service = zoho.crm.getRecordById("Service_Request", Id);
+    Integrated_Stages = related_service.get("Integrated_Stages");
+    ZCreator_ID = related_service.get("ZCreator_ID");
+
+    // ---------------------------------------------------
+    // Step 2: Prepare update map for Creator
+    // ---------------------------------------------------
+    service_request_map = Map();
+    service_request_map.put("Stage1", Integrated_Stages);
+
+    // Format the current date and time as "dd-MMM-yyyy HH:mm:ss"
+    currentdate = zoho.currenttime.toString();
+    currentdate = currentdate.substring(11, 19);
+    currentdate = zoho.currentdate.toString("dd-MMM-yyyy") + " " + currentdate;
+    service_request_map.put("Last_Stage_Date", currentdate);
+
+    // ---------------------------------------------------
+    // Step 3: Update the corresponding record in Creator
+    // ---------------------------------------------------
+    otherParams = Map();
+    response = zoho.creator.updateRecord(
+        "ivaenvironmentalservices", // App link name
+        "iva-environmental-services", // App owner
+        "All_Service_Requests", // Form lin
