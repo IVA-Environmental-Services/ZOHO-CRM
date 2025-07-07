@@ -1,0 +1,148 @@
+/**
+ * Function: Leads_Create_Contact_And_Account_In_Crm_Customer_In_ZohoBook
+ * ---------------------------------------------------------
+ * Automates the following actions:
+ *  - Retrieves a lead from Zoho CRM.
+ *  - Creates or updates an Account based on the lead data.
+ *  - Creates a Contact in Zoho CRM.
+ *  - Creates a Customer in Zoho Books.
+ *  - Links the Zoho Books customer back to the CRM Lead.
+ *
+ * @param lead_id (Int) - ID of the lead record from Zoho CRM.
+ * @return void
+ */
+void automation.Leads_Create_Contact_And_Account_In_Crm_Customer_In_ZohoBook(Int lead_id)
+{
+    // -----------------------
+    // 1. Get Lead Information
+    // -----------------------
+    leadDetails = zoho.crm.getRecordById("Leads", lead_id);
+    get_Last_Name = ifnull(leadDetails.get("Last_Name"), "");
+    get_First_Name = ifnull(leadDetails.get("First_Name"), "");
+    get_email = leadDetails.get("Email");
+    get_phone = ifnull(leadDetails.get("Phone"), "");
+
+    // Create full name
+    full_name = (get_First_Name != null) ? get_First_Name + " " + get_Last_Name : get_Last_Name;
+
+    get_mail_address = ifnull(leadDetails.get("Mailing_Address"), "");
+    account_name = ifnull(leadDetails.getJSON("Account_Name"), null);
+    accountId = "";
+
+    // -----------------------
+    // 2. Create or Update Account in CRM
+    // -----------------------
+    if(account_name == null || account_name.isEmpty())
+    {
+        account_map = Map();
+        account_map.put("Account_Name", full_name);
+        account_map.put("Phone", get_phone);
+        account_map.put("Lead", lead_id);
+        createAccount = zoho.crm.createRecord("Accounts", account_map);
+        info "Create Account : " + createAccount;
+
+        accountId = createAccount.get("id");
+
+        if(accountId != null)
+        {
+            lead_map = Map();
+            lead_map.put("Account_Name", accountId);
+            update_lead = zoho.crm.updateRecord("Leads", lead_id, lead_map);
+            info update_lead;
+        }
+    }
+    else
+    {
+        accountId = ifnull(account_name.get("id"), "");
+        if(accountId != "")
+        {
+            account_map = Map();
+            account_map.put("Lead", lead_id);
+            update_account = zoho.crm.updateRecord("Accounts", accountId, account_map);
+            info update_account;
+        }
+    }
+
+    // -----------------------
+    // 3. Create Contact in CRM
+    // -----------------------
+    contact_map = Map();
+    contact_map.put("Last_Name", get_Last_Name);
+    contact_map.put("First_Name", get_First_Name);
+    contact_map.put("Email", get_email);
+    contact_map.put("Phone", get_phone);
+    contact_map.put("Mailing_Address", get_mail_address);
+    contact_map.put("Lead_Name", lead_id);
+    if(accountId != "")
+    {
+        contact_map.put("Account_Name", accountId);
+    }
+
+    createContact = zoho.crm.createRecord("Contacts", contact_map);
+    info "Create Contact : " + createContact;
+
+    // -----------------------
+    // 4. Prepare Data for Zoho Books Customer
+    // -----------------------
+    street = ifnull(leadDetails.get("Street"), "");
+    state = ifnull(leadDetails.get("State"), "");
+    city = ifnull(leadDetails.get("City"), "");
+    country = ifnull(leadDetails.get("Country"), "");
+    zipcode = ifnull(leadDetails.get("Zip_Code"), "");
+    owner_email = ifnull(leadDetails.getJSON("Owner").get("email"), "");
+
+    // Contact person details
+    contact_list = list();
+    contactperson = Map();
+    contactperson.put("first_name", get_First_Name);
+    contactperson.put("last_name", get_Last_Name);
+    contactperson.put("email", get_email);
+    contactperson.put("phone", get_phone);
+    contact_list.add(contactperson);
+
+    // Billing address
+    billing_address = Map();
+    billing_address.put("address", street);
+    billing_address.put("zip", zipcode);
+    billing_address.put("state", state);
+    billing_address.put("country", country);
+    billing_address.put("city", city);
+
+    // Custom fields for mapping CRM info
+    customfieldList = list();
+
+    crm_id_map = Map();
+    crm_id_map.put("label", "CRM Lead ID");
+    crm_id_map.put("value", lead_id);
+    customfieldList.add(crm_id_map);
+
+    crm_url_map = Map();
+    crm_url_map.put("label", "CRM Lead URL");
+    crm_url_map.put("value", "https://crm.zoho.com/crm/org848449301/tab/Leads/" + lead_id);
+    customfieldList.add(crm_url_map);
+
+    // Final Zoho Books contact map
+    book_contact_map = Map();
+    book_contact_map.put("billing_address", billing_address);
+    book_contact_map.put("contact_name", full_name);
+    book_contact_map.put("contact_persons", contact_list);
+    book_contact_map.put("custom_fields", customfieldList);
+
+    // -----------------------
+    // 5. Create Customer in Zoho Books
+    // -----------------------
+    create_contact_zoho_book = zoho.books.createRecord("contacts", "848446319", book_contact_map, "zohobooks");
+    info "Create Contacts Zoho Books: " + create_contact_zoho_book;
+
+    contact = create_contact_zoho_book.getJSON("contact");
+    contact_id = contact.get("contact_id");
+
+    // -----------------------
+    // 6. Update CRM Lead with Zoho Books Customer Info
+    // -----------------------
+    lead_update_map = Map();
+    lead_update_map.put("Zoho_Book_Customer_Id", contact_id);
+    lead_update_map.put("Zoho_Book_Customer_URL", "https://books.zoho.com/app/848446319#/contacts/" + contact_id);
+    update_lead = zoho.crm.updateRecord("Leads", lead_id, lead_update_map);
+    info "Update Record Successfully: " + update_lead;
+}
