@@ -1,0 +1,110 @@
+/**
+ * Function: Accounts_sync_account_in_creator
+ * -----------------------------------------------------------------------------
+ * Syncs an Account record from Zoho CRM into Zoho Creator, including:
+ *  - Related Projects (Deals)
+ *  - Related Contacts
+ *
+ * If the account already exists in Creator (based on ZCRM_ID), it updates it.
+ * If not found, it creates a new account record.
+ *
+ * Modules:
+ *  - Zoho CRM: Accounts, Deals, Contacts
+ *  - Zoho Creator: All_Accounts, All_Projects, All_Contacts
+ *
+ * @param Id (Int) - Zoho CRM Account ID
+ */
+void automation.Accounts_sync_account_in_creator(Int Id)
+{
+    // ================== STEP 1: Fetch Related Deals (Projects) ==================
+    related_projects = zoho.crm.getRelatedRecords("Deals", "Accounts", Id);
+    related_projects_list = List();
+    creator_project_id = "";
+
+    if(related_projects.size() > 0)
+    {
+        for each proj in related_projects
+        {
+            proj_id = proj.get("id").toString();
+            search_project = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", "ZCRM_ID==\"" + proj_id + "\"", 1, 1, "zoho_creator");
+
+            if(search_project.get("code") == "3000")
+            {
+                creator_project_id = search_project.get("data").get(0).get("ID");
+                related_project_map = Map();
+                related_project_map.put("Service_Address", creator_project_id);
+                related_projects_list.add(related_project_map);
+            }
+        }
+    }
+
+    info related_projects_list.size();  // Debug info
+
+    // ================== STEP 2: Fetch Related Contacts ==================
+    related_contacts = zoho.crm.getRelatedRecords("Contacts", "Accounts", Id);
+    related_contacts_list = List();
+
+    if(related_contacts.size() > 0)
+    {
+        for each r_contact in related_contacts
+        {
+            related_contact_id = r_contact.get("id");
+            search_contact = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Contacts", "ZCRM_ID==\"" + related_contact_id + "\"", 1, 1, "zoho_creator");
+
+            if(search_contact.get("code") == "3000")
+            {
+                creator_contact_id = search_contact.get("data").get(0).get("ID");
+                related_contact_map = Map();
+                related_contact_map.put("Contact_Name", creator_contact_id);
+                related_contacts_list.add(related_contact_map);
+            }
+
+            // 🔒 Optional logic for portal invitations is commented out.
+            // It includes sending API requests, token generation, and updating CRM.
+        }
+    }
+
+    // ================== STEP 3: Extract Account Details from CRM ==================
+    data = zoho.crm.getRecordById("Accounts", Id);
+
+    account_name = data.get("Account_Name");
+    account_owner_name = data.get("Owner").get("name");
+    account_site = if(!isnull(data.get("Account_Site")), data.get("Account_Site"), "");
+    customer_account_id = if(!isnull(data.get("Client_Account_ID")), data.get("Client_Account_ID"), "");
+    parent_account_name = if(!isnull(data.get("Parent_Account")), data.get("Parent_Account").get("name"), "");
+    phone = if(!isnull(data.get("Phone")), data.get("Phone"), "");
+
+    // ================== STEP 4: Check if Record Exists in Creator ==================
+    search_id = Id.toString();
+    searchInCreator = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Accounts", "ZCRM_ID==\"" + search_id + "\"", 1, 1, "zoho_creator");
+    info searchInCreator;
+
+    // ================== STEP 5: Prepare Data Map ==================
+    dataMap = Map();
+    dataMap.put("Account_Name", account_name);
+    dataMap.put("Account_Owner", account_owner_name);
+    dataMap.put("Account_Site", account_site);
+    dataMap.put("Customer_Account_ID", customer_account_id);
+    dataMap.put("Parent_Account", parent_account_name);
+    dataMap.put("Phone_Number", phone.toString());
+    dataMap.put("ZCRM_ID", search_id);
+    dataMap.put("Related_Projects", related_projects_list);
+    dataMap.put("Related_Contacts", related_contacts_list);
+
+    otherParams = Map();
+
+    // ================== STEP 6: Create or Update in Creator ==================
+    if(searchInCreator.get("code") == "3000")
+    {
+        // ✅ Update existing record
+        creator_record_id = searchInCreator.get("data").get(0).get("ID");
+        update_response = zoho.creator.updateRecord("ivaenvironmentalservices", "iva-environmental-services", "All_Accounts", creator_record_id, dataMap, otherParams, "zoho_creator");
+        info "udpate_response => " + update_response;
+    }
+    else
+    {
+        // 🆕 Create new record
+        create_response = zoho.creator.createRecord("ivaenvironmentalservices", "iva-environmental-services", "Accounts", dataMap, otherParams, "zoho_creator");
+        info "create_response => " + create_response;
+    }
+}
