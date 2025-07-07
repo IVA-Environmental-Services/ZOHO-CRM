@@ -1,0 +1,137 @@
+/**
+ * Function: Service_Request_Update_The_Survey_Results_Data_In_Service_Request
+ * ------------------------------------------------------------------------------
+ * Purpose:
+ * - Fetches the most recent Survey Result record linked to the associated Deal (Project).
+ * - Updates related survey fields in the Service Request module in Zoho CRM.
+ * - Automatically moves the record in the blueprint if the Stage = "Upload Survey Results".
+ *
+ * Modules Involved:
+ * - CRM: Service_Request, Deals, Survey_Results
+ * - Blueprint transition for Service_Request
+ *
+ * @param service_id (Int): CRM ID of the Service Request record
+ */
+
+void automation.Service_Request_Update_The_Survey_Results_Data_In_Service_Request(Int service_id)
+{
+    // -------------------------------------------
+    // Step 1: Fetch the Service Request Record
+    // -------------------------------------------
+    service_request = zoho.crm.getRecordById("Service_Request", service_id);
+
+    // Get associated Project (Deal) ID
+    project_name = service_request.get("Project_Name");
+    if(project_name != null)
+    {
+        project_id = project_name.getJSON("id");
+        info project_id;
+
+        // -------------------------------------------
+        // Step 2: Get related Survey Result from Deal
+        // -------------------------------------------
+        project_details = zoho.crm.getRecordById("Deals", project_id);
+        info project_details;
+
+        // Get all related Survey Results from the Deal
+        survey_result = zoho.crm.getRelatedRecords("Survey_Results", "Deals", project_id);
+        info survey_result;
+
+        if(survey_result.size() > 0)
+        {
+            // Use the first Survey Result record
+            survey_id = survey_result.get(0).get("id");
+            survey_details = zoho.crm.getRecordById("Survey_Results", survey_id);
+
+            // -------------------------------------------
+            // Step 3: Map Survey Data to Service Request
+            // -------------------------------------------
+            total_number_of_burrows = survey_details.get("Total_Number_of_Burrow_s");
+            active_number_of_burrows = survey_details.get("Active_number_of_Burrow_s");
+            estimated_number_of_tortoises = survey_details.get("Estimated_Number_of_Tortoises");
+            number_of_owls_observed = survey_details.get("Number_of_Owls_observed");
+            wetland = survey_details.get("Wetland");
+            mangroves = survey_details.get("Mangroves");
+            total_acres = survey_details.get("Total_Acres");
+            number_of_potential_heritage_trees = survey_details.get("Number_of_Potential_Heritage_Trees");
+            scrub_jay_designated = survey_details.get("Scrub_Jay_Designated");
+            bald_eagle_nest_activity = survey_details.get("Bald_Eagle_Nest_Activity");
+            distance_ft = survey_details.get("Distance_ft");
+            other = survey_details.get("Other");
+
+            // Prepare map to update CRM record
+            survey_request_map = Map();
+            survey_request_map.put("Total_Number_of_Burrow_s", total_number_of_burrows);
+            survey_request_map.put("Active_number_of_Burrow_s", active_number_of_burrows);
+            survey_request_map.put("Estimated_Number_of_Tortoises", estimated_number_of_tortoises);
+            survey_request_map.put("Number_of_Owls", number_of_owls_observed.toString());
+            survey_request_map.put("Wetland", wetland);
+            survey_request_map.put("Mangroves", mangroves);
+            survey_request_map.put("Total_Acres", total_acres);
+            survey_request_map.put("Number_of_Potential_Heritage_Trees", number_of_potential_heritage_trees);
+            survey_request_map.put("Scrub_Jay_Designated", scrub_jay_designated);
+            survey_request_map.put("Bald_Eagle_Nest_Activity", bald_eagle_nest_activity);
+            survey_request_map.put("Distance_ft", distance_ft);
+            survey_request_map.put("Other", other);
+
+            info survey_request_map;
+
+            // Update the Service Request record with survey data
+            update_survey = zoho.crm.updateRecord("Service_Request", service_id, survey_request_map);
+            info update_survey;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // Step 4: Blueprint Automation - Advance Stage if applicable
+    // ------------------------------------------------------------
+    response = invokeurl
+    [
+        url :"https://www.zohoapis.com/crm/v7/Service_Request/" + service_id + "/actions/blueprint"
+        type :GET
+        connection:"crm"
+    ];
+    info response;
+
+    getbp = response.get("blueprint");
+    process_info = getbp.get("process_info");
+    field_value = process_info.get("field_value");
+    info field_value;
+
+    transitions = getbp.get("transitions");
+    info transitions;
+
+    // Check if current stage is "Upload Survey Results"
+    if(field_value == "Upload Survey Results")
+    {
+        transition_id = "6171737000009850362"; // Static ID of the transition step
+        info "IN IF: Owls >= Burrows";
+
+        if(transition_id != "")
+        {
+            // Create blueprint transition payload
+            dataMap = Map();
+            dataMap.put("Notes", "Updated via blueprint");
+
+            blueprint1 = Map();
+            blueprint1.put("transition_id", transition_id);
+            blueprint1.put("data", dataMap);
+
+            blueprintList = List();
+            blueprintList.add(blueprint1);
+
+            param = Map();
+            param.put("blueprint", blueprintList);
+
+            // Make PUT request to complete blueprint transition
+            response2 = invokeurl
+            [
+                url :"https://www.zohoapis.com/crm/v3/Service_Request/" + service_id + "/actions/blueprint"
+                type :PUT
+                parameters:param.toString()
+                connection:"crm"
+            ];
+            info "Updated Record" + response2;
+        }
+    }
+}
