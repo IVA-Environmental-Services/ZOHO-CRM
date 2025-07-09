@@ -1,0 +1,174 @@
+/**
+ * @function Projects_Update_Project_Number_Field_And_Create_Record_In_Zoho_Creator
+ * @description Updates the "Project_Number" field in Zoho CRM Deals module and
+ *              creates or updates a corresponding project record in Zoho Creator.
+ * @param {Int} project_id - ID of the project (Deals record) in Zoho CRM.
+ */
+void automation.Projects_Update_Project_Number_Field_And_Create_Record_In_Zoho_Creator(Int project_id)
+{
+	// ========================== STEP 1: Fetch Project Details from CRM ==========================
+	projectDetails = zoho.crm.getRecordById("Deals", project_id);
+
+	// ================== STEP 2: Update Project_Number field with Account Prefix ==================
+	account_name = projectDetails.getJSON("Account_Name");
+	if (account_name != null)
+	{
+		account_id = account_name.getJSON("id");
+		account_details = zoho.crm.getRecordById("Accounts", account_id);
+
+		account_number = ifnull(account_details.get("Client_Account_ID"), "");
+		project_number = ifnull(projectDetails.get("Auto_Number"), "");
+
+		project_map = Map();
+		project_map.put("Project_Number", account_number + "-" + project_number);
+
+		info project_map;
+		update_project = zoho.crm.updateRecord("Deals", project_id, project_map);
+		info update_project;
+	}
+
+	// ========================== STEP 3: Extract Environmental Fields ==========================
+	project_details = zoho.crm.getRecordById("Deals", project_id);
+
+	// NOTE: Environmental attributes relevant to project analysis
+	total_number_of_burrows = ifnull(project_details.get("Total_Number_of_Burrow_s"), "");
+	number_of_owl_burrows = ifnull(project_details.get("Number_of_Owls"), "");
+	scrub_jay_designated = ifnull(project_details.get("Scrub_Jay_Designated"), "");
+	wetland = ifnull(project_details.get("Wetland"), "");
+	number_of_potential_heritage_trees = ifnull(project_details.get("Number_of_Potential_Heritage_Trees"), "");
+	bald_eagle_nest_activity = ifnull(project_details.get("Bald_Eagle_Nest_Activity"), "");
+	mangroves = ifnull(project_details.get("Mangroves"), "");
+	note = ifnull(project_details.get("Note"), "");
+	project_number = ifnull(project_details.get("Project_Number"), "66"); // Default if missing
+	county = project_details.get("County");
+
+	// =================== STEP 4: Get Related Service Requests (1-M) ===================
+	related_records = zoho.crm.getRelatedRecords("Service_Requested", "Deals", project_id);
+	service_request_list = List();
+
+	if (related_records.size() > 0)
+	{
+		for each related_service in related_records
+		{
+			// Extract fields from each related Service Request
+			service_request_map = Map();
+
+			service_request_map.put("Service_Request_Name", related_service.get("Name"));
+			service_request_map.put("Customer_Service_Request_ID", ifnull(related_service.get("Service_Request_Number"), ""));
+			service_request_map.put("Project_Number", ifnull(related_service.get("Project_Number"), ""));
+			service_request_map.put("City", ifnull(related_service.get("City"), ""));
+			service_request_map.put("Parcel_ID", ifnull(related_service.get("Parcel_ID"), ""));
+			service_request_map.put("County", ifnull(related_service.get("County1"), ""));
+			service_request_map.put("Zone", ifnull(related_service.get("Zone"), ""));
+			service_request_map.put("Relocation_Type", ifnull(related_service.get("On_Site1"), ""));
+			service_request_map.put("Permit_Number", ifnull(related_service.get("Permit_Number"), ""));
+			service_request_map.put("Recommended_Recipient_Site", ifnull(related_service.get("Recommended_Recipient_Site"), ""));
+			
+			// Convert date fields
+			permit_issue_date = ifnull(related_service.get("Permit_Issue_Date"), null);
+			service_request_map.put("Permit_Issue_Date", (permit_issue_date != null) ? permit_issue_date.toDate() : "");
+
+			permit_expiry_date = ifnull(related_service.get("Permit_expiry_date"), null);
+			service_request_map.put("Permit_expiry_date", (permit_expiry_date != null) ? permit_expiry_date.toDate() : "");
+
+			service_request_map.put("Checklist_Type", ifnull(related_service.get("Checklist_Type"), ""));
+			service_request_map.put("Permit_Application_Number", ifnull(related_service.get("Permit_Application_Number1"), ""));
+			service_request_map.put("Number_of_Reservation", ifnull(related_service.get("Number_of_Reservation"), ""));
+			service_request_map.put("Email", ifnull(related_service.get("Contact_Email"), ""));
+			service_request_map.put("ZCRM_ID", related_service.get("id").toString());
+
+			service_request_list.add(service_request_map);
+		}
+	}
+
+	// =================== STEP 5: Gather Primary Project Info Again ===================
+	project_data = zoho.crm.getRecordById("Deals", project_id);
+	project_name = project_data.get("Deal_Name");
+	project_email = project_data.get("Email_address");
+	pipeline = project_data.get("Pipeline");
+	stage = project_data.get("Stage");
+	project_owner = project_data.get("Owner").get("name");
+
+	// =================== STEP 6: Search or Link Account in Zoho Creator ===================
+	account_id3 = "";
+	if (project_data.get("Account_Name") != null)
+	{
+		account_id = project_data.get("Account_Name").get("id").toString();
+		search_accounts = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Accounts", "ZCRM_ID==\"" + account_id + "\"", 1, 1, "zoho_creator");
+
+		if (search_accounts.get("code") == "3000")
+		{
+			account_id3 = search_accounts.get("data").get(0).get("ID").toLong();
+		}
+	}
+
+	// =================== STEP 7: Search or Link Contact in Zoho Creator ===================
+	contact_id3 = "";
+	if (project_data.get("Contact_Name") != null)
+	{
+		contact_id = project_data.get("Contact_Name").get("id").toString();
+		search_contact = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Contacts", "ZCRM_ID==\"" + contact_id + "\"", 1, 1, "zoho_creator");
+
+		if (search_contact.get("code") == "3000")
+		{
+			contact_id3 = search_contact.get("data").get(0).get("ID").toLong();
+		}
+	}
+
+	// =================== STEP 8: Build Payload for Zoho Creator Project Record ===================
+	dataMap = Map();
+	dataMap.put("Project_Name", project_name);
+	dataMap.put("Email_address", project_email);
+	dataMap.put("Pipeline", pipeline);
+	dataMap.put("Stage", stage);
+	dataMap.put("County", county);
+	dataMap.put("Customer_Project_ID", project_number);
+	dataMap.put("Project_Owner", project_owner);
+	dataMap.put("Account_Name", account_id3);
+	dataMap.put("Contact_Name", contact_id3);
+	dataMap.put("ZCRM_ID", project_id.toString());
+	dataMap.put("Related_Service_Requests", service_request_list);
+
+	// Add environmental fields
+	dataMap.put("Total_Number_of_Tortoise_Burrows", total_number_of_burrows);
+	dataMap.put("Number_of_Owl_Burrows", number_of_owl_burrows);
+	dataMap.put("Scrub_Jay_Designated", scrub_jay_designated);
+	dataMap.put("Wetland", wetland);
+	dataMap.put("Number_of_Potential_Heritage_Trees", number_of_potential_heritage_trees);
+	dataMap.put("Bald_Eagle", bald_eagle_nest_activity);
+	dataMap.put("Mangroves", mangroves);
+	dataMap.put("Note", note);
+
+	// =================== STEP 9: Create or Update Zoho Creator Project ===================
+	otherParams = Map();
+	search_project = zoho.creator.getRecords("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", "ZCRM_ID==\"" + project_id.toString() + "\"", 1, 1, "zoho_creator");
+
+	if (search_project.get("code") == "3000")
+	{
+		// Record exists, so update it
+		info "Record found.";
+		project_id3 = search_project.get("data").get(0).get("ID");
+		update_project = zoho.creator.updateRecord("ivaenvironmentalservices", "iva-environmental-services", "All_Projects", project_id3, dataMap, otherParams, "zoho_creator");
+		info "update_project => " + update_project;
+
+		project_map = Map();
+		project_map.put("Creator_Project_Id", project_id3);
+		update_project = zoho.crm.updateRecord("Deals", project_id, project_map);
+		info update_project;
+	}
+	else
+	{
+		// Record not found — create a new one
+		info "Record not found!";
+		create_project = zoho.creator.createRecord("ivaenvironmentalservices", "iva-environmental-services", "Projects", dataMap, otherParams, "zoho_creator");
+		info "create_project => " + create_project;
+
+		creator_project_id = create_project.get("data").get("ID");
+		info "creator_project_id" + creator_project_id;
+
+		project_map = Map();
+		project_map.put("Creator_Project_Id", creator_project_id);
+		update_project = zoho.crm.updateRecord("Deals", project_id, project_map, {"trigger": {"workflow"}});
+		info update_project;
+	}
+}
