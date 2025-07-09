@@ -1,0 +1,192 @@
+/**
+ * @function Quotes_Create_Quote_In_Zoho_Books
+ * @description Syncs a CRM Quote to Zoho Books by creating a corresponding Estimate.
+ * @param {Int} quote_id - The ID of the CRM Quote record to be pushed to Zoho Books.
+ */
+void automation.Quotes_Create_Quote_In_Zoho_Books(Int quote_id)
+{
+	// ========================= STEP 1: Generate Access Token =========================
+	access_token_map = Map();
+	access_token_map.put("refresh_token","1000.8a1b70881ebe2511f408a81f34cef761.1ab581279f72f3365295bf2f1fd9e063");
+	access_token_map.put("client_id","1000.NRRCVSXN91LURZ95MMTHNG2RESGLDA");
+	access_token_map.put("client_secret","80bfd833096b6098dab088bc04a40442740b65eaa8");
+	access_token_map.put("redirect_uri","https://www.google.com");
+	access_token_map.put("grant_type","refresh_token");
+
+	access_tokens = invokeurl
+	[
+		url :"https://accounts.zoho.com/oauth/v2/token?"
+		type :POST
+		parameters:access_token_map
+	];
+	info access_tokens;
+
+	if(access_tokens.contains("access_token"))
+	{
+		// ========================= STEP 2: Fetch Quote Details from CRM =========================
+		header = Map();
+		header.put("Authorization","Zoho-oauthtoken " + access_tokens.get("access_token"));
+
+		response = invokeurl
+		[
+			url :"https://www.zohoapis.com/crm/v7/Quotes/" + quote_id
+			type :GET
+			headers:header
+			connection:"crm"
+		];
+		data = response.get("data").get(0);
+		account_id = data.get("Account_Name").getJSON("id");
+		quote_subject = data.get("Subject");
+		account_email = ifnull(data.get("Account_Email"),"");
+		owner_email = data.getJSON("Owner").get("email");
+
+		// ========================= STEP 3: Get Account Details =========================
+		account_details = zoho.crm.getRecordById("Accounts",account_id);
+		is_strategic_account = account_details.getJSON("Is_strategic_Account");
+
+		// ========================= STEP 4: Parse Valid Until Date =========================
+		valid_until = data.get("Valid_Till").toString("yyyy-MM-dd");
+		valid_till_date = valid_until.toDate("yyyy-MM-dd");
+		valid = valid_till_date.toString("yyyy-MM-dd");
+
+		// ========================= STEP 5: Get Contact Email =========================
+		email = "";
+		contact_name = data.get("Contact_Name");
+		if(contact_name != null)
+		{
+			contact_id = ifnull(contact_name.get("id"),"");
+			contactDetails = zoho.crm.getRecordById("Contacts",contact_id);
+			email = ifnull(contactDetails.getJSON("Email"),"");
+			info email;
+		}
+
+		// ========================= STEP 6: Get Lead Details if Linked =========================
+		lead_name = account_details.getJSON("Lead");
+		if(lead_name != null)
+		{
+			lead_id = lead_name.get("id");
+			lead_details = zoho.crm.getRecordById("Leads",lead_id);
+			info "leadDetails: " + lead_details;
+		}
+
+		// ========================= STEP 7: Process Quote Line Items =========================
+		quoted_items_subform = data.get("Quoted_Items");
+		prod_list = list();
+
+		for each subform in quoted_items_subform
+		{
+			service_address = subform.get("Service_Address");
+			service_address_name = ifnull(service_address.get("name"),"");
+			service_type = subform.get("Product_Name");
+			service_type_name = ifnull(service_type.get("name"),"");
+			quantity = subform.getJSON("quantity");
+			discount = subform.getJSON("Discount");
+			total = subform.getJSON("Total");
+
+			prod_map = Map();
+			prod_map.put("name",service_type_name);
+			prod_map.put("quantity",quantity);
+			prod_map.put("discount",discount);
+			prod_map.put("rate",total);
+
+			// Add Service Address to custom field in line item
+			item_custom_fields = list();
+			item = Map();
+			item.put("label","Service Address");
+			item.put("value",service_address_name);
+			item_custom_fields.add(item);
+			prod_map.put("item_custom_fields",item_custom_fields);
+
+			prod_list.add(prod_map);
+		}
+		info prod_list;
+
+		// ========================= STEP 8: Prepare Custom Fields =========================
+		custom_field_list = list();
+
+		// CRM Quote ID
+		custom_field_map = Map();
+		custom_field_map.put("label","CRM Quote Id");
+		custom_field_map.put("value",quote_id.toString());
+		custom_field_list.add(custom_field_map);
+
+		// CRM Quote URL
+		custom_field_map = Map();
+		custom_field_map.put("label","CRM Quote URL");
+		custom_field_map.put("value","https://crm.zoho.com/crm/org848449301/tab/Quotes/" + quote_id.toString());
+		custom_field_list.add(custom_field_map);
+
+		// Quote Subject
+		custom_field_map = Map();
+		custom_field_map.put("label","Quote Subject");
+		custom_field_map.put("value",quote_subject);
+		custom_field_list.add(custom_field_map);
+
+		// Valid Until Date
+		custom_field_map = Map();
+		custom_field_map.put("label","Valid Until");
+		custom_field_map.put("value",valid);
+		custom_field_list.add(custom_field_map);
+
+		// ========================= STEP 9: Create Estimate in Zoho Books =========================
+		values = Map();
+		values.put("line_items",prod_list);
+		values.put("date",now.toDate());
+		values.put("custom_fields",custom_field_list);
+
+		create_record = Map();
+		if(lead_details != null)
+		{
+			zoho_books_customer_id = lead_details.getJSON("Zoho_Book_Customer_Id");
+			if(zoho_books_customer_id != null)
+			{
+				values.put("customer_id",zoho_books_customer_id);
+				create_record = zoho.books.createRecord("Estimates","848446319",values,"zohobooks");
+			}
+			else
+			{
+				searchParam = {"email":email};
+				get_contacts = zoho.books.getRecords("Contacts","848446319",searchParam,"zohobooks");
+				if(get_contacts.size() > 0)
+				{
+					contact_id = get_contacts.getJSON("contacts").get(0).getJSON("contact_id");
+					values.put("customer_id",contact_id);
+					create_record = zoho.books.createRecord("Estimates","848446319",values,"zohobooks");
+				}
+			}
+		}
+		else
+		{
+			searchParam = {"email":email};
+			get_contacts = zoho.books.getRecords("Contacts","848446319",searchParam,"zohobooks");
+			if(get_contacts.size() > 0)
+			{
+				contact_id = get_contacts.getJSON("contacts").get(0).getJSON("contact_id");
+				values.put("customer_id",contact_id);
+				create_record = zoho.books.createRecord("Estimates","848446319",values,"zohobooks");
+			}
+		}
+
+		// ========================= STEP 10: Update CRM Quote with Estimate Info =========================
+		estimate = create_record.getJSON("estimate");
+		estimate_id = estimate.get("estimate_id");
+		estimate_number = estimate.get("estimate_number");
+		info "Estimate Number: " + estimate_number;
+
+		quote_map = Map();
+		quote_map.put("Zoho_Book_Quote_Id",estimate_id);
+		quote_map.put("Zoho_Book_Quote_Number",estimate_number);
+		quote_map.put("Account_Email",email);
+
+		// Auto-update stage if strategic
+		if(is_strategic_account == "Yes")
+		{
+			quote_map.put("Quote_Stage","accepted");
+		}
+
+		quote_map.put("Zoho_Book_Quote_URL","https://books.zoho.com/app/848446319#/quotes/" + estimate_id);
+		update_quote = zoho.crm.updateRecord("Quotes",quote_id,quote_map,{"trigger":{"workflow"}});
+		info update_quote;
+	}
+}
+/////////////////////////////////////// Add by using field update we are updating the valid until field from excustion day plus 60 days /////////////////////
