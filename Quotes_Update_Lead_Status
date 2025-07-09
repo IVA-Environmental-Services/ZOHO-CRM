@@ -1,0 +1,26 @@
+void automation.Quotes_Update_Lead_Status(Int quote_id)
+{
+	// STEP 1: Fetch quote record by ID
+	// NOTE: Retrieves the quote record from Zoho CRM to extract related Lead ID
+	quote_details = zoho.crm.getRecordById("Quotes", quote_id);
+
+	// INFO: Extract the Lead ID associated with the Quote
+	lead_id = quote_details.getJSON("Lead_Id");
+
+	// STEP 2: Link the quote to the lead again (optional, in case not already linked)
+	// TODO: Confirm if this is required — may be redundant if already linked
+	quote_map = Map();
+	quote_map.put("Lead", lead_id);
+
+	// NOTE: Updating the quote with the lead reference, triggers workflows if configured
+	update_quote = zoho.crm.updateRecord("Quotes", quote_id, quote_map, {"trigger":{"workflow"}});
+	info update_quote;
+
+	// STEP 3: Update the Lead's status to "Closed"
+	lead_map = Map();
+	lead_map.put("Lead_Status", "Closed");
+
+	// NOTE: Updates the status of the Lead to mark it as successfully converted/closed
+	update_lead = zoho.crm.updateRecord("Leads", lead_id, lead_map);
+	info update_lead;
+}
