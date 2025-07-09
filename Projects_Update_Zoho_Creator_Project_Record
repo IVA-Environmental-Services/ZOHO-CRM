@@ -1,0 +1,64 @@
+/**
+ * @function Projects_Update_Zoho_Creator_Project_Record
+ * @description Updates an existing project record in Zoho Creator with selected fields from the CRM "Deals" module.
+ * @param {Int} deal_id - The CRM Deal ID used to fetch and sync project data.
+ */
+void automation.Projects_Update_Zoho_Creator_Project_Record(Int deal_id)
+{
+	// ======================== STEP 1: Fetch Project Details from CRM (Deals) ========================
+	project_details = zoho.crm.getRecordById("Deals", deal_id);
+
+	// ======================== STEP 2: Handle & Format Inspection Date ========================
+	inspection_date = project_details.getJSON("Inspection_Date");
+	format_date = "";
+
+	if(inspection_date != "" && inspection_date != null)
+	{
+		// NOTE: Format inspection date for Zoho Creator field
+		format_date = inspection_date.toString("dd-MMM-yyyy");
+		info format_date;
+	}
+
+	// ======================== STEP 3: Extract Environmental Fields ========================
+	total_number_of_burrows = ifnull(project_details.getJSON("Total_Number_of_Burrow_s1"), "");
+	number_of_owl_burrows = ifnull(project_details.get("Total_Number_of_Burrow_s1"), "");
+	scrub_jay_designated = ifnull(project_details.get("Scrub_Jay_Designated"), "");
+	wetland = ifnull(project_details.get("Wetland"), "");
+	number_of_potential_heritage_trees = ifnull(project_details.get("Number_of_Potential_Heritage_Trees"), "");
+	bald_eagle_nest_activity = ifnull(project_details.get("Bald_Eagle_Nest_Activity"), "");
+	mangroves = ifnull(project_details.get("Mangroves"), "");
+	note = ifnull(project_details.get("Note"), "");
+	barrowing_owl_present = ifnull(project_details.get("Barrowing_Owl_Present"), "");
+
+	// ======================== STEP 4: Fetch Zoho Creator Project ID from CRM ========================
+	creator_project_id = project_details.getJSON("Creator_Project_Id");
+	info creator_project_id;
+
+	// ======================== STEP 5: Prepare Data Map for Zoho Creator Update ========================
+	creator_map = Map();
+	otherParams = Map();
+
+	creator_map.put("Total_Number_of_Tortoise_Burrows", total_number_of_burrows);
+	creator_map.put("Number_of_Owl_Burrows", number_of_owl_burrows);
+	creator_map.put("Scrub_Jay_Designated", scrub_jay_designated);
+	creator_map.put("Wetland", wetland);
+	creator_map.put("Number_of_Potential_Heritage_Trees", number_of_potential_heritage_trees);
+	creator_map.put("Bald_Eagle", bald_eagle_nest_activity);
+	creator_map.put("Mangroves", mangroves);
+	creator_map.put("Note", note);
+	creator_map.put("Barrowing_Owl_Present", barrowing_owl_present);
+	creator_map.put("Inspection_Date", format_date);
+
+	// ======================== STEP 6: Update the Project Record in Zoho Creator ========================
+	update_project = zoho.creator.updateRecord(
+		"ivaenvironmentalservices", // Creator App Link Name
+		"iva-environmental-services", // Creator App Name
+		"All_Projects", // Creator Form Link Name
+		creator_project_id, // Record ID in Creator
+		creator_map, // Data to update
+		otherParams, // Optional Params
+		"zoho_creator" // Connection Name
+	);
+
+	info update_project;
+}
