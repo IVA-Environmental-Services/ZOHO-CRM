@@ -1,0 +1,54 @@
+void automation.QuotesUpdateQuoteStageInZohoBooks(String quote_id)
+{
+	// STEP 1: Fetch quote details from Zoho CRM
+	// NOTE: This retrieves the quote record using the CRM quote ID.
+	quoteDetail = zoho.crm.getRecordById("Quotes", quote_id);
+
+	// INFO: Get the current stage of the quote
+	quoteStage = quoteDetail.get("Quote_Stage");
+
+	// INFO: Get the corresponding Zoho Books quote ID from the CRM record
+	zohoBooksQuoteId = quoteDetail.getJSON("Zoho_Book_Quote_Id");
+
+	// STEP 2: Generate Zoho OAuth access token using refresh token
+	// TODO: Rotate refresh token securely (avoid hardcoding in production)
+	m2 = Map();
+	m2.put("refresh_token", "1000.a72f3e12ed739f629cc6ef8da41d919a.a4156e538018a004aabfefca669cbd5b");
+	m2.put("client_id", "1000.NRRCVSXN91LURZ95MMTHNG2RESGLDA");
+	m2.put("client_secret", "80bfd833096b6098dab088bc04a40442740b65eaa8");
+	m2.put("redirect_uri", "https://www.google.com");
+	m2.put("grant_type", "refresh_token");
+
+	// HACK: Invoking token endpoint to retrieve a new access token
+	res2 = invokeurl
+	[
+		url : "https://accounts.zoho.com/oauth/v2/token?"
+		type : POST
+		parameters : m2
+	];
+
+	// INFO: Extract the access token from the response
+	access_token = res2.getJSON("access_token");
+	info access_token;
+
+	// STEP 3: Mark estimate status as "Sent" in Zoho Books before setting it to "Accepted"
+	// NOTE: Zoho Books requires status to be "Sent" before "Accepted"
+	response = zoho.books.markStatus("estimates", "848446319", zohoBooksQuoteId, "sent", "zohobooks");
+	info response;
+
+	// STEP 4: Prepare headers for direct API call to update estimate status to "Accepted"
+	headers_data = Map();
+	headers_data.put("Authorization", access_token);
+
+	// TODO: Replace hardcoded org ID ("848446319") with environment config or dynamic fetch if possible
+	response = invokeurl
+	[
+		url : "https://www.zohoapis.com/books/v3/estimates/" + zohoBooksQuoteId + "/status/accepted?organization_id=848446319"
+		type : POST
+		headers : headers_data
+		connection : "zohobooks"
+	];
+
+	// INFO: Final response after marking estimate as "Accepted"
+	info response;
+}
