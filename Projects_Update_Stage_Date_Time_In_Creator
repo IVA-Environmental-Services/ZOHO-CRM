@@ -1,0 +1,51 @@
+/**
+ * @function Projects_Update_Stage_Date_Time_In_Creator
+ * @description Syncs the "Stage_Updated_Date_Time" field from Zoho CRM (Deals)
+ *              to the corresponding project record in Zoho Creator.
+ * @param {Int} deal_id - The Deal ID from Zoho CRM whose stage change date/time needs syncing.
+ */
+void automation.Projects_Update_Stage_Date_Time_In_Creator(Int deal_id)
+{
+	// ======================= STEP 1: Fetch Deal Record From CRM =======================
+	project_details = zoho.crm.getRecordById("Deals", deal_id);
+
+	// Get Creator Project ID linked in the Deal record
+	creator_project_id = ifnull(project_details.getJSON("Creator_Project_Id"), "");
+
+	// Get Stage Updated Date-Time from CRM
+	stage_changed_date_time = project_details.getJSON("Stage_Updated_Date_Time");
+
+	// ======================= STEP 2: Format and Prepare Date-Time =======================
+	if(stage_changed_date_time != null)
+	{
+		// Convert to DateTime object
+		stage_changed_date_time_obj = stage_changed_date_time.toDateTime("yyyy-MM-dd'T'HH:mm:ssXXX");
+
+		// Extract and format time
+		time = stage_changed_date_time.toString().substring(11, 19);
+		info time;
+
+		// Format full datetime as dd-MMM-yyyy with corrected time
+		formatted_date_time = stage_changed_date_time.toString("dd-MMM-yyyy hh:mm:ss");
+		formatted_date_time = formatted_date_time.substring(0, 12) + time;
+
+		// ======================= STEP 3: Update in Zoho Creator =======================
+		dataMap = Map();
+		dataMap.put("Stage_Updated_Date_Time", formatted_date_time);
+		info dataMap;
+
+		otherParams = Map();
+
+		update_project = zoho.creator.updateRecord(
+			"ivaenvironmentalservices",                   // App Link Name
+			"iva-environmental-services",                 // App Name
+			"All_Projects",                               // Form Link Name
+			creator_project_id,                           // Record ID in Creator
+			dataMap,                                      // Field Map
+			otherParams,                                  // Optional Params
+			"zoho_creator"                                // Connection Name
+		);
+
+		info "Update response from Creator: " + update_project;
+	}
+}
