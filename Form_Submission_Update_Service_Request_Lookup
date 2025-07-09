@@ -1,0 +1,56 @@
+void automation.Form_Submission_Update_Service_Request_Lookup(Int formId)
+{
+	// STEP 1: Retrieve the Form_Submission record by ID
+	getRec = zoho.crm.getRecordById("Form_Submission", formId);
+
+	// STEP 2: Get all attachments related to the Form_Submission
+	relatedRecords = zoho.crm.getRelatedRecords("Attachments", "Form_Submission", formId);
+	attachmentIds = List();
+
+	// NOTE: Collect all attachment IDs into a list
+	for each record in relatedRecords
+	{
+		attachmentId = record.get("id");
+		attachmentIds.add(attachmentId);
+	}
+
+	// STEP 3: Re-fetch the Form_Submission to get the latest Service_Request_Id
+	getRec = zoho.crm.getRecordById("Form_Submission", formId);
+	service_request_id = getRec.get("Service_Request_Id");
+
+	// Proceed only if Service_Request_Id is not null or empty
+	if(service_request_id != "" && service_request_id != null)
+	{
+		// STEP 4: Loop through each attachment and upload it to the associated Deal (Service Request)
+		for each id in attachmentIds
+		{
+			// NOTE: Download the attachment from Form_Submission
+			downloadFile = invokeurl
+			[
+				url : "https://www.zohoapis.com/crm/v2/Form_Submission/" + formId + "/Attachments/" + id
+				type : GET
+				connection : "crm"
+			];
+
+			// NOTE: Attach the downloaded file to the related Deal (Service Request)
+			resp = zoho.crm.attachFile("Deals", service_request_id, downloadFile);
+
+			// INFO: Log the attachment response for trace/debug
+			info resp;
+		}
+
+		// STEP 5: Update the Form_Submission to link the Service_Request via lookup field
+		updateMap = Map();
+		updateMap.put("Service_Request", service_request_id);
+
+		updateResp = zoho.crm.updateRecord("Form_Submission", formId, updateMap);
+
+		// INFO: Log update response
+		info updateResp;
+	}
+	else
+	{
+		// INFO: Service_Request_Id was not found; log and halt process
+		info "Service_Request_Id is empty or null in the Form_Submission record.";
+	}
+}
