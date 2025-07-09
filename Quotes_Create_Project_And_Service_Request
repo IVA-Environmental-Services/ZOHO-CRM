@@ -1,0 +1,277 @@
+void automation.Quotes_Create_Project_And_Service_Request(Int quote_id)
+{
+	// TODO: Set up OAuth token using refresh token flow
+	access_token_map = Map();
+	access_token_map.put("refresh_token","1000.8a1b70881ebe2511f408a81f34cef761.1ab581279f72f3365295bf2f1fd9e063");
+	access_token_map.put("client_id","1000.NRRCVSXN91LURZ95MMTHNG2RESGLDA");
+	access_token_map.put("client_secret","80bfd833096b6098dab088bc04a40442740b65eaa8");
+	access_token_map.put("redirect_uri","https://www.google.com");
+	access_token_map.put("grant_type","refresh_token");
+
+	access_tokens = invokeurl
+	[
+		url :"https://accounts.zoho.com/oauth/v2/token"
+		type :POST
+		parameters:access_token_map
+	];
+
+	if(access_tokens.contains("access_token"))
+	{
+		// NOTE: Get quote details using the provided quote_id
+		header = Map();
+		header.put("Authorization","Zoho-oauthtoken " + access_tokens.get("access_token"));
+
+		response = invokeurl
+		[
+			url :"https://www.zohoapis.com/crm/v7/Quotes/" + quote_id
+			type :GET
+			headers:header
+			connection:"crm"
+		];
+
+		// INFO: Extract related field values from quote
+		data = response.get("data").get(0);
+		contact_name = data.get("Contact_Name");
+		contactId = ifnull(contact_name.get("id"),"");
+		account_name = data.get("Account_Name");
+		accountId = ifnull(account_name.get("id"),"");
+		quoted_items_subform = data.get("Quoted_Items");
+		account_email = ifnull(data.get("Account_Email"),"");
+		payment_method = ifnull(data.get("Payment_Method"),"");
+		quote_action_type = ifnull(data.get("Quote_Action_Type"),"");
+
+		// NOTE: Fetch all related contacts from the quote
+		related_contacts = zoho.crm.getRelatedRecords("Contacts","Quotes",quote_id);
+		contact_list = List();
+		if(related_contacts.size() > 0)
+		{
+			for each record in related_contacts
+			{
+				contact_record_id = record.get("id");
+				contact_list.add(contact_record_id);
+			}
+		}
+
+		dealMap = Map(); // Used to track service address-to-project mapping
+
+		// TODO: Iterate through each quoted item (subform)
+		for each subform in quoted_items_subform
+		{
+			service_address = subform.get("Service_Address");
+			service_address_id = ifnull(service_address.get("id"),"");
+			service_address_name = ifnull(service_address.get("name"),"");
+
+			// INFO: Fetch location details from Service Address
+			service_address_details = zoho.crm.getRecordById("Service_Address",service_address_id);
+			county = service_address_details.getJSON("County");
+			city = service_address_details.getJSON("City");
+			parcel_id = service_address_details.getJSON("Parcel_Id");
+
+			// INFO: Fetch service/product information
+			service_type = subform.get("Product_Name");
+			service_type_name = ifnull(service_type.get("name"),"");
+			service_id = ifnull(service_type.get("id"),"");
+			serviceType_Record = zoho.crm.getRecordById("Products",service_id);
+			subform_list_price = subform.get("Net_Total");
+			serviceType_Category = serviceType_Record.get("Product_Category");
+
+			// NOTE: Search existing deals by service address
+			deal_search_record = zoho.crm.searchRecords("Deals","(Service_Address_Id:equals:" + service_address_id + ")",1,200);
+
+			if(deal_search_record.size() > 0)
+			{
+				for each record in deal_search_record
+				{
+					deal_id = record.get("id");
+					deal_details = zoho.crm.getRecordById("Deals",deal_id);
+					status = deal_details.get("Status");
+					deal_name = ifnull(deal_details.get("Deal_Name"),"");
+
+					// CASE 1: Deal is Active – create Service Request
+					if(status == "Active")
+					{
+						// TODO: Prepare Service Request map
+						service_request_map = Map();
+						service_request_map.put("Name",service_type_name);
+						service_request_map.put("Contact_Name",contactId);
+						service_request_map.put("Service_Type",service_id);
+						service_request_map.put("Unit_Price",subform_list_price);
+						service_request_map.put("Site_Address",service_address_name);
+						service_request_map.put("Project_Name",deal_id);
+						service_request_map.put("Category",serviceType_Category);
+						service_request_map.put("Stage",contactId); // Ambiguity: is Stage supposed to be a contact ID?
+						service_request_map.put("Service_Type_Id",service_id);
+						service_request_map.put("Contact_Id",contactId);
+						service_request_map.put("Customer_portal","False");
+						service_request_map.put("County1",county);
+						service_request_map.put("Parcel_ID",parcel_id);
+						service_request_map.put("City",city);
+						service_request_map.put("Account_Id",accountId);
+						service_request_map.put("Service_Address_Id",service_address_id);
+
+						// CREATE: Service Request
+						create_service_request = zoho.crm.createRecord("Service_Request",service_request_map,{"trigger":{"workflow","blueprint"}});
+						record_id = create_service_request.getJSON("id");
+
+						// UPDATE: Backfill Service Address info
+						service_update_map = Map();
+						service_update_map.put("Service_Request_Id",record_id.toString());
+						service_update_map.put("Service_Address",deal_name);
+						update_record = zoho.crm.updateRecord("Service_Request",record_id,service_update_map);
+
+						// NOTE: Update contact with Service Request and Project info
+						for each contact in contact_list
+						{
+							contact_map = Map();
+							contact_map.put("Service_Request",record_id);
+							contact_map.put("Project_Name",deal_id);
+							update_contact_record = zoho.crm.updateRecord("Contacts",contact,contact_map);
+							info update_contact_record;
+						}
+					}
+					// CASE 2: Deal is Inactive – create new project/deal
+					else if(status == "Inactive")
+					{
+						if(!dealMap.containsKey(service_address_id))
+						{
+							service_address_details = zoho.crm.getRecordById("Service_Address",service_address_id);
+							service_address_full_name = ifnull(service_address_details.get("Name"),"");
+
+							// TODO: Create new Project (Deal)
+							create_project_map = Map();
+							create_project_map.put("Contact_Name",contactId);
+							create_project_map.put("Account_Name",accountId);
+							create_project_map.put("Deal_Name",service_address_full_name);
+							create_project_map.put("Email",account_email);
+							create_project_map.put("Status","Active");
+							create_project_map.put("Service_Address_Id",service_address_id);
+							create_project_map.put("County",county);
+							create_project_map.put("Parcel_ID",parcel_id);
+							create_project_map.put("City",city);
+
+							create_project = zoho.crm.createRecord("Deals",create_project_map);
+							project_id = ifnull(create_project.get("id"),"");
+
+							// Link new project with quote
+							quote_map = Map();
+							quote_map.put("Project",project_id);
+							update_quote = zoho.crm.updateRecord("Quotes",quote_id,quote_map);
+
+							// Update all related contacts
+							for each contact in contact_list
+							{
+								contact_map = Map();
+								contact_map.put("Service_Request",record_id);
+								contact_map.put("Project_Name",project_id);
+								update_contact_record = zoho.crm.updateRecord("Contacts",contact,contact_map);
+								info update_contact_record;
+							}
+
+							dealMap.put(service_address_id,project_id);
+						}
+
+						// Create Service Request linked to new project
+						service_request_map = Map();
+						service_request_map.put("Name",service_type_name);
+						service_request_map.put("Contact_Name",contactId);
+						service_request_map.put("Service_Type",service_id);
+						service_request_map.put("Unit_Price",subform_list_price);
+						service_request_map.put("Site_Address",service_address_name);
+						service_request_map.put("Project_Name",project_id);
+						service_request_map.put("Category",serviceType_Category);
+						service_request_map.put("Stage","Project Created");
+						service_request_map.put("Service_Type_Id",service_id);
+						service_request_map.put("Contact_Id",contactId);
+						service_request_map.put("Customer_portal","False");
+						service_request_map.put("County1",county);
+						service_request_map.put("Parcel_ID",parcel_id);
+						service_request_map.put("City",city);
+						service_request_map.put("Account_Id",accountId);
+						service_request_map.put("Service_Address_Id",service_address_id);
+						service_request_map.put("Payment_Method",payment_method);
+						service_request_map.put("Quote_Action_Type",quote_action_type);
+
+						create_service_request = zoho.crm.createRecord("Service_Request",service_request_map,{"trigger":{"workflow","blueprint"}});
+						record_id = create_service_request.getJSON("id");
+
+						service_update_map = Map();
+						service_update_map.put("Service_Request_Id",record_id.toString());
+						service_update_map.put("Service_Address",deal_name);
+						update_record = zoho.crm.updateRecord("Service_Request",record_id,service_update_map);
+
+						// Update contacts again
+						for each contact in contact_list
+						{
+							contact_map = Map();
+							contact_map.put("Service_Request",record_id);
+							contact_map.put("Project_Name",project_id);
+							update_contact_record = zoho.crm.updateRecord("Contacts",contact,contact_map);
+							info update_contact_record;
+						}
+					}
+				}
+			}
+			// CASE 3: No deal exists – create new one
+			else
+			{
+				service_address_details = zoho.crm.getRecordById("Service_Address",service_address_id);
+				service_address_full_name = ifnull(service_address_details.get("Name"),"");
+
+				// Create new Deal
+				create_project_map = Map();
+				create_project_map.put("Contact_Name",contactId);
+				create_project_map.put("Account_Name",accountId);
+				create_project_map.put("Deal_Name",service_address_full_name);
+				create_project_map.put("Email",account_email);
+				create_project_map.put("Status","Active");
+				create_project_map.put("County",county);
+				create_project_map.put("Parcel_ID",parcel_id);
+				create_project_map.put("City",city);
+				create_project_map.put("Service_Address_Id",service_address_id);
+
+				create_project = zoho.crm.createRecord("Deals",create_project_map);
+				project_id = ifnull(create_project.get("id"),"");
+				dealMap.put(service_address_id,project_id);
+
+				// Update contacts
+				for each contact in contact_list
+				{
+					contact_map = Map();
+					contact_map.put("Service_Request",record_id);
+					contact_map.put("Project_Name",project_id);
+					update_contact_record = zoho.crm.updateRecord("Contacts",contact,contact_map);
+					info update_contact_record;
+				}
+
+				// Create final service request
+				service_request_map = Map();
+				service_request_map.put("Name",service_type_name);
+				service_request_map.put("Contact_Name",contactId);
+				service_request_map.put("Service_Type",service_id);
+				service_request_map.put("Unit_Price",subform_list_price);
+				service_request_map.put("Site_Address",service_address_name);
+				service_request_map.put("Project_Name",create_project.get("id"));
+				service_request_map.put("Category",serviceType_Category);
+				service_request_map.put("Stage","Project Created");
+				service_request_map.put("Service_Type_Id",service_id);
+				service_request_map.put("Contact_Id",contactId);
+				service_request_map.put("Customer_portal","False");
+				service_request_map.put("County1",county);
+				service_request_map.put("Parcel_ID",parcel_id);
+				service_request_map.put("City",city);
+				service_request_map.put("Account_Id",accountId);
+				service_request_map.put("Service_Address_Id",service_address_id);
+				service_request_map.put("Payment_Method",payment_method);
+				service_request_map.put("Quote_Action_Type",quote_action_type);
+
+				create_service_request = zoho.crm.createRecord("Service_Request",service_request_map,{"trigger":{"workflow","blueprint"}});
+				record_id = create_service_request.getJSON("id");
+
+				service_update_map = Map();
+				service_update_map.put("Service_Request_Id",record_id.toString());
+				service_update_map.put("Service_Address",deal_name);
+				update_record = zoho.crm.updateRecord("Service_Request",record_id,service_update_map);
+			}
+		}
+	}
+}
