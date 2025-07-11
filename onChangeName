@@ -1,0 +1,14 @@
+// Get the 'Contact_Name' field from the page
+const contactNameField = ZDK.Page.getField('Contact_Name');
+
+// Get the 'Name' field from the page
+const nameField = ZDK.Page.getField('Name');
+
+// Check if the 'Contact_Name' field exists and has a selected value
+if (contactNameField && contactNameField.getValue()) {
+    // Extract the 'name' value from the 'Contact_Name' lookup field
+    const contactNameValue = contactNameField.getValue().name;
+    
+    // Set the extracted name as the value of the 'Name' field
+    nameField.setValue(contactNameValue);
+}
