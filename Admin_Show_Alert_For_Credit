@@ -1,0 +1,9 @@
+// Retrieve the selected payment method from the 'Payment_Method' field
+let payment_method = ZDK.Page.getField("Payment_Method").getValue();
+log(payment_method);  // Log the selected payment method for debugging
+
+// Check if the selected payment method is 'Credit Card'
+if (payment_method === "Credit Card") {
+    // Show a notification about the applicable credit card fee
+    ZDK.Client.showMessage('A 3.1% credit card fee is applied to all credit card transactions.');
+}
