@@ -1,0 +1,43 @@
+// Get the current page URL from the client object
+var current_url = $Client.url;
+console.log("Current URL:", current_url);
+
+// Initialize variables to hold values extracted from the URL
+let lead_id = null;
+let account_email = null;
+let all_service_type = null;
+let contact_id = null;
+
+// Check if the URL contains a 'Lead_Id' parameter
+if (current_url.includes("Lead_Id=")) {
+    // Extract the Lead ID from the URL
+    let urlSegments = current_url.split('Lead_Id=');
+    let get_leadId = urlSegments[urlSegments.length - 1].split('&')[0];
+    console.log("Lead ID:", get_leadId);
+
+    // Set the extracted Lead ID in the 'Lead_Id' field
+    lead_id = ZDK.Page.getField("Lead_Id").setValue(get_leadId);
+    console.log("Set Lead ID:", lead_id);
+} else {
+    // If no 'Lead_Id' is present, parse other parameters from the query string
+    let params = new URLSearchParams(current_url.split('?')[1]);
+
+    // Extract relevant parameters from the URL
+    account_email = params.get("Account_Email");
+    all_service_type = params.get("All_Service_Type");
+    contact_id = params.get("Contact_Id");
+    account_id = params.get("Account_Id");
+    service_address = params.get("All_Service_Address");
+
+    // Log extracted values for debugging
+    console.log("Account Email:", account_email);
+    console.log("All Service Type:", all_service_type);
+    console.log("Contact ID:", contact_id);
+
+    // Set the extracted values into their corresponding form fields
+    ZDK.Page.getField("Account_Email").setValue(account_email);
+    ZDK.Page.getField("All_Service_Type").setValue(all_service_type);
+    ZDK.Page.getField("Account_Id").setValue(account_id);
+    ZDK.Page.getField("Contact_Id").setValue(contact_id);
+    ZDK.Page.getField("All_Service_Address").setValue(service_address);
+}
