@@ -1,0 +1,48 @@
+// Fetch the Contact ID from the page
+let contact_id = ZDK.Page.getField("Contact_Id").getValue();
+log(contact_id);
+
+// Fetch contact information from the CRM using the Contact ID
+let contactInfo = ZDK.Apps.CRM.Contacts.fetchById(contact_id);
+log(JSON.stringify(contactInfo));
+
+// Set the 'Contact_Name' lookup field with the contact's ID and full name
+ZDK.Page.getField("Contact_Name").setValue({ "id": contactInfo.id, "name": contactInfo.Full_Name });
+
+// Fetch the Account ID from the page
+let account_id = ZDK.Page.getField("Account_Id").getValue();
+log(account_id);
+
+// Fetch account information from the CRM using the Account ID
+let accountInfo = ZDK.Apps.CRM.Accounts.fetchById(account_id);
+log(JSON.stringify(accountInfo));
+
+// Set the 'Account_Name' lookup field with the account's ID and name
+ZDK.Page.getField("Account_Name").setValue({ "id": accountInfo.id, "name": accountInfo._Account_Name });
+
+
+// ----------------- Subform & Related Lookup ------------------ //
+
+// Fetch the Service Address ID from the page
+let all_Service_Address = ZDK.Page.getField("All_Service_Address").getValue();
+log(all_Service_Address);
+
+// Fetch service address details from the CRM using the ID
+let all_Service_AddressInfo = ZDK.Apps.CRM.Service_Address.fetchById(all_Service_Address);
+log(JSON.stringify(all_Service_AddressInfo));
+
+// Set the 'Project' field with the service address (used as project name)
+ZDK.Page.getField("Project").setValue({ "id": all_Service_AddressInfo.id, "name": all_Service_AddressInfo.Name });
+
+// Fetch the selected Service Type (Product ID)
+let all_service_type = ZDK.Page.getField("All_Service_Type").getValue();
+log(all_service_type);
+
+// Fetch service type/product information from CRM
+let all_service_typeInfo = ZDK.Apps.CRM.Products.fetchById(all_service_type);
+log(JSON.stringify(all_service_typeInfo));
+
+// Populate the 'Quoted_Items' subform with the service address (can add more fields if needed)
+ZDK.Page.getField("Quoted_Items").setValue([
+    { "Service_Address": { "id": all_Service_AddressInfo.id, "name": all_Service_AddressInfo.Name } }
+]);
